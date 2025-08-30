@@ -6,6 +6,11 @@ license = "GPL-3.0-only"
 edition = "2024"
 publish = false
 
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
+
 [dependencies.libflowerpot]
 git = "https://github.com/krypt0nn/libflowerpot"
 
