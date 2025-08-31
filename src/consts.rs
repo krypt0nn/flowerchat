@@ -46,7 +46,7 @@ lazy_static::lazy_static! {
                 })
         })
         .map_err(std::io::Error::other)
-        .and_then(|_| {
+        .or_else(|_| {
             std::env::current_dir()
                 .map(|path| path.join("flowerchat"))
         })
