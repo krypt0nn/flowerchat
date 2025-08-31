@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
 // flowerchat
 // Copyright (C) 2025  Nikita Podvirnyi <krypt0nn@vk.com>
@@ -19,8 +19,6 @@
 use std::io::{Read, Write};
 
 use clap::{Parser, Subcommand};
-use rand_chacha::ChaCha20Rng;
-use rand_chacha::rand_core::{RngCore, SeedableRng};
 
 use libflowerpot::crypto::*;
 
@@ -28,40 +26,13 @@ pub mod consts;
 pub mod utils;
 pub mod database;
 pub mod identities;
-
-/// Get sustainably random number generator.
-fn get_rng() -> ChaCha20Rng {
-    // Seed rng using both system-provided entropy and current time.
-    // This is needed because some systems can fallback to zero-filled
-    // entropy.
-    let mut rng = ChaCha20Rng::from_entropy();
-    let mut seed = [0; 32];
-
-    rng.fill_bytes(&mut seed);
-
-    let current_time = time::UtcDateTime::now()
-        .unix_timestamp()
-        .to_le_bytes();
-
-    for i in 0..32 {
-        seed[i] ^= current_time[i % 8];
-    }
-
-    ChaCha20Rng::from_seed(seed)
-}
+pub mod tui;
 
 #[derive(Parser)]
 #[command(version)]
 struct Cli {
     #[command(subcommand)]
-    command: Command
-}
-
-impl Cli {
-    #[inline]
-    pub async fn run(self) -> anyhow::Result<()> {
-        self.command.run().await
-    }
+    command: Option<Command>
 }
 
 #[derive(Subcommand)]
@@ -101,7 +72,7 @@ impl KeypairCommand {
     pub async fn run(self) -> anyhow::Result<()> {
         match self {
             Self::Create => {
-                let secret_key = SecretKey::random(&mut get_rng());
+                let secret_key = SecretKey::random(&mut utils::get_rng());
 
                 let mut stdout = std::io::stdout();
 
@@ -151,5 +122,16 @@ async fn main() -> anyhow::Result<()> {
                 .context("failed to create flowerchat data folder")
         })?;
 
-    Cli::parse().run().await
+    match Cli::parse().command {
+        Some(command) => command.run().await,
+        None => {
+            let mut terminal = ratatui::init();
+
+            tui::login::render(&mut terminal).await?;
+
+            ratatui::restore();
+
+            Ok(())
+        }
+    }
 }

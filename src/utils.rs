@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
 // flowerchat
 // Copyright (C) 2025  Nikita Podvirnyi <krypt0nn@vk.com>
@@ -15,6 +15,30 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+use rand_chacha::ChaCha20Rng;
+use rand_chacha::rand_core::{RngCore, SeedableRng};
+
+/// Get sustainably random number generator.
+pub fn get_rng() -> ChaCha20Rng {
+    // Seed rng using both system-provided entropy and current time.
+    // This is needed because some systems can fallback to zero-filled
+    // entropy.
+    let mut rng = ChaCha20Rng::from_entropy();
+    let mut seed = [0; 32];
+
+    rng.fill_bytes(&mut seed);
+
+    let current_time = time::UtcDateTime::now()
+        .unix_timestamp()
+        .to_le_bytes();
+
+    for i in 0..32 {
+        seed[i] ^= current_time[i % 8];
+    }
+
+    ChaCha20Rng::from_seed(seed)
+}
 
 /// Cast bytes slice into a unicode emoji.
 pub fn bytes_to_emoji(bytes: impl AsRef<[u8]>) -> &'static str {

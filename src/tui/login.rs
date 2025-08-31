@@ -16,13 +16,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-// TODO
+use super::*;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ShardInfo {
-    /// Internal ID of the space this shard belongs to.
-    pub space_id: i64,
+pub async fn render(terminal: &mut RatatuiTerminal) -> anyhow::Result<()> {
+    // loop {
+    //     terminal.draw(|frame| {
 
-    /// Address of the shard.
-    pub address: String
+    //     })?;
+    // }
+
+    Ok(())
 }
