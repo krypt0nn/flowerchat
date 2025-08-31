@@ -34,12 +34,14 @@ pub fn read() -> anyhow::Result<Vec<Identity>> {
     let identities = std::fs::read(IDENTITIES_PATH.as_path())?;
     let identities = serde_json::from_slice::<Vec<Json>>(&identities)?;
 
-    let identities = identities.into_iter()
+    let mut identities = identities.into_iter()
         .map(|identity| {
             Identity::from_json(&identity)
                 .context("failed to read identities list")
         })
         .collect::<Result<Vec<_>, _>>()?;
+
+    identities.dedup_by(|a, b| a.secret_key() == b.secret_key());
 
     Ok(identities)
 }
