@@ -73,6 +73,12 @@ impl ChatRecord {
         Ok(Self(database, id))
     }
 
+    /// Open chat without verifying its existance.
+    #[inline(always)]
+    pub fn open_raw(database: Database, id: i64) -> Self {
+        Self(database, id)
+    }
+
     /// Open existing chat from its ID.
     pub fn open(
         database: Database,

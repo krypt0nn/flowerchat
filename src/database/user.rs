@@ -68,6 +68,12 @@ impl UserRecord {
         Ok(Self(database, id))
     }
 
+    /// Open user without verifying its existance.
+    #[inline(always)]
+    pub fn open_raw(database: Database, id: i64) -> Self {
+        Self(database, id)
+    }
+
     /// Open existing user from its ID.
     pub fn open(
         database: Database,

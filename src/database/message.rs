@@ -92,6 +92,12 @@ impl MessageRecord {
         Ok(Self(database, id))
     }
 
+    /// Open message without verifying its existance.
+    #[inline(always)]
+    pub fn open_raw(database: Database, id: i64) -> Self {
+        Self(database, id)
+    }
+
     /// Open existing message from its ID.
     pub fn open(
         database: Database,
