@@ -623,6 +623,7 @@ dependencies = [
  "regex",
  "rusqlite",
  "serde",
+ "serde_json",
  "spin",
  "time",
  "tokio",

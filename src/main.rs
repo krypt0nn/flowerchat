@@ -24,6 +24,7 @@ use rand_chacha::rand_core::{RngCore, SeedableRng};
 
 use libflowerpot::crypto::*;
 
+pub mod consts;
 pub mod emojis;
 pub mod database;
 
@@ -143,5 +144,11 @@ impl KeypairCommand {
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
+    std::fs::create_dir_all(consts::DATA_FOLDER.as_path())
+        .map_err(|err| {
+            anyhow::anyhow!("failed to create flowerchat data folder")
+                .context(err)
+        })?;
+
     Cli::parse().run().await
 }
