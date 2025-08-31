@@ -18,6 +18,10 @@
 
 use std::path::PathBuf;
 
+use ratatui::style::*;
+
+pub const TUI_PRIMARY_COLOR: Color = Color::Blue;
+
 lazy_static::lazy_static! {
     /// Path to the flowerchat's data folder. Takes one of the following values
     /// in the corresponding priority order.

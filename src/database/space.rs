@@ -18,6 +18,8 @@
 
 use libflowerpot::crypto::*;
 
+use crate::utils::{bytes_to_emoji, bytes_to_shortname};
+
 use super::Database;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,5 +143,27 @@ impl SpaceRecord {
             .execute((self.1, title.as_ref()))?;
 
         Ok(self)
+    }
+
+    fn get_space_slice(&self) -> rusqlite::Result<[u8; 65]> {
+        let root_block = self.root_block()?;
+        let author = self.author()?.to_bytes();
+
+        let mut slice = [0; 65];
+
+        slice[..32].copy_from_slice(&root_block.0);
+        slice[32..].copy_from_slice(&author);
+
+        Ok(slice)
+    }
+
+    /// Get emoji representing the current space.
+    pub fn emoji(&self) -> rusqlite::Result<&'static str> {
+        Ok(bytes_to_emoji(self.get_space_slice()?))
+    }
+
+    /// Get shortname representation of the current space.
+    pub fn shortname(&self) -> rusqlite::Result<String> {
+        Ok(bytes_to_shortname(self.get_space_slice()?))
     }
 }

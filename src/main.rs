@@ -18,6 +18,7 @@
 
 use std::io::{Read, Write};
 
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 
 use libflowerpot::crypto::*;
@@ -125,11 +126,17 @@ async fn main() -> anyhow::Result<()> {
     match Cli::parse().command {
         Some(command) => command.run().await,
         None => {
+            let database = database::Database::open(
+                consts::DATABASE_PATH.as_path()
+            ).context("failed to open flowerchat database")?;
+
             let mut terminal = ratatui::init();
 
-            tui::login::render(&mut terminal).await?;
+            let result = tui::login::render(database, &mut terminal).await;
 
             ratatui::restore();
+
+            result?;
 
             Ok(())
         }

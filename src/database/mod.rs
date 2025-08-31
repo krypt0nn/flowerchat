@@ -18,6 +18,7 @@
 
 use std::path::Path;
 use std::sync::Arc;
+use std::iter::FusedIterator;
 
 use spin::{Mutex, MutexGuard};
 use rusqlite::Connection;
@@ -38,7 +39,7 @@ impl Database {
 
         connection.execute_batch(r#"
             CREATE TABLE IF NOT EXISTS spaces (
-                id         INTEGER NOT NULL UNIQUE AUTOINCREMENT,
+                id         INTEGER NOT NULL UNIQUE,
                 title      TEXT,
                 root_block BLOB    NOT NULL,
                 author     BLOB    NOT NULL,
@@ -64,7 +65,7 @@ impl Database {
             CREATE INDEX IF NOT EXISTS shards_idx ON shards (space_id);
 
             CREATE TABLE IF NOT EXISTS users (
-                id         INTEGER NOT NULL UNIQUE AUTOINCREMENT,
+                id         INTEGER NOT NULL UNIQUE,
                 space_id   INTEGER NOT NULL,
                 public_key BLOB    NOT NULL,
                 nickname   TEXT             UNIQUE DEFAULT NULL,
@@ -97,7 +98,7 @@ impl Database {
             );
 
             CREATE TABLE IF NOT EXISTS chats (
-                id       INTEGER NOT NULL UNIQUE AUTOINCREMENT,
+                id       INTEGER NOT NULL UNIQUE,
                 space_id INTEGER NOT NULL,
                 name     TEXT    NOT NULL,
 
@@ -119,7 +120,7 @@ impl Database {
             );
 
             CREATE TABLE IF NOT EXISTS messages (
-                id      INTEGER NOT NULL UNIQUE AUTOINCREMENT,
+                id      INTEGER NOT NULL UNIQUE,
                 chat_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
 
@@ -168,34 +169,26 @@ pub struct SpacesIter {
 }
 
 impl Iterator for SpacesIter {
-    type Item = rusqlite::Result<space::SpaceRecord>;
+    type Item = space::SpaceRecord;
 
     fn next(&mut self) -> Option<Self::Item> {
         let lock = self.database.lock();
 
-        let query = lock.prepare_cached("
+        let mut query = lock.prepare_cached("
             SELECT id FROM spaces WHERE id > ?1 ORDER BY id ASC LIMIT 1
-        ");
+        ").ok()?;
 
-        match query {
-            Ok(mut query) => {
-                match query.query_row([self.current], |row| row.get("id")) {
-                    Ok(id) => {
-                        self.current = id;
+        let id = query.query_row([self.current], |row| row.get("id")).ok()?;
 
-                        let record = space::SpaceRecord::open_raw(
-                            self.database.clone(),
-                            id
-                        );
+        self.current = id;
 
-                        Some(Ok(record))
-                    }
+        let record = space::SpaceRecord::open_raw(
+            self.database.clone(),
+            id
+        );
 
-                    Err(err) => Some(Err(err))
-                }
-            }
-
-            Err(err) => Some(Err(err))
-        }
+        Some(record)
     }
 }
+
+impl FusedIterator for SpacesIter {}
