@@ -24,6 +24,7 @@ use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 
 use ratatui::layout::*;
 use ratatui::widgets::*;
+use ratatui::text::*;
 use ratatui::style::*;
 
 pub mod login;

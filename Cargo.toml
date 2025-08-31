@@ -30,7 +30,7 @@ regex = "1.11"
 lazy_static = "1.5"
 spin = "0.10"
 futures = "0.3"
-time = "0.3"
+time = { version = "0.3", features = ["local-offset"] }
 rand_chacha = "0.3"
 blake3 = "1.8"
 crc32fast = "1.5"
