@@ -152,4 +152,50 @@ impl Database {
     fn lock(&self) -> MutexGuard<'_, Connection> {
         self.0.lock()
     }
+
+    /// Get iterator over all the stored spaces.
+    pub fn spaces(&self) -> SpacesIter {
+        SpacesIter {
+            database: self.clone(),
+            current: 0
+        }
+    }
+}
+
+pub struct SpacesIter {
+    database: Database,
+    current: i64
+}
+
+impl Iterator for SpacesIter {
+    type Item = rusqlite::Result<space::SpaceRecord>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let lock = self.database.lock();
+
+        let query = lock.prepare_cached("
+            SELECT id FROM spaces WHERE id > ?1 ORDER BY id ASC LIMIT 1
+        ");
+
+        match query {
+            Ok(mut query) => {
+                match query.query_row([self.current], |row| row.get("id")) {
+                    Ok(id) => {
+                        self.current = id;
+
+                        let record = space::SpaceRecord::open_raw(
+                            self.database.clone(),
+                            id
+                        );
+
+                        Some(Ok(record))
+                    }
+
+                    Err(err) => Some(Err(err))
+                }
+            }
+
+            Err(err) => Some(Err(err))
+        }
+    }
 }
