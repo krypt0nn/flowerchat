@@ -25,8 +25,9 @@ use rand_chacha::rand_core::{RngCore, SeedableRng};
 use libflowerpot::crypto::*;
 
 pub mod consts;
-pub mod emojis;
+pub mod utils;
 pub mod database;
+pub mod identities;
 
 /// Get sustainably random number generator.
 fn get_rng() -> ChaCha20Rng {
@@ -146,8 +147,8 @@ impl KeypairCommand {
 async fn main() -> anyhow::Result<()> {
     std::fs::create_dir_all(consts::DATA_FOLDER.as_path())
         .map_err(|err| {
-            anyhow::anyhow!("failed to create flowerchat data folder")
-                .context(err)
+            anyhow::anyhow!(err)
+                .context("failed to create flowerchat data folder")
         })?;
 
     Cli::parse().run().await
