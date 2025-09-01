@@ -20,6 +20,7 @@ use std::path::PathBuf;
 
 use ratatui::style::*;
 
+pub const TUI_DISABLED_COLOR: Color = Color::DarkGray;
 pub const TUI_PRIMARY_COLOR: Color = Color::Blue;
 
 lazy_static::lazy_static! {

@@ -20,7 +20,7 @@ use std::io::Stdout;
 
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
+use ratatui::crossterm::event::{self, Event, KeyCode};
 
 use ratatui::layout::*;
 use ratatui::widgets::*;
@@ -28,5 +28,6 @@ use ratatui::text::*;
 use ratatui::style::*;
 
 pub mod login;
+pub mod create_identity;
 
 type RatatuiTerminal = Terminal<CrosstermBackend<Stdout>>;
