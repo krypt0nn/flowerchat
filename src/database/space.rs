@@ -16,9 +16,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-// use std::io::{Cursor, Read};
-
-// use varint_rs::{VarintReader, VarintWriter};
+use std::io::Cursor;
 
 use libflowerpot::crypto::*;
 
@@ -26,74 +24,109 @@ use crate::utils::*;
 
 use super::Database;
 
-// const SPACE_SHARE_LINK_COMPRESSION_LEVEL: i32 = 20;
+const SPACE_SHARE_LINK_COMPRESSION_LEVEL: i32 = 20;
 
-// #[derive(Debug, Clone, PartialEq, Eq)]
-// pub struct SpaceShareLink {
-//     pub title: String,
-//     pub root_block: Hash,
-//     pub author: PublicKey,
-//     pub shards: Vec<String>
-// }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpaceShareLink {
+    pub title: String,
+    pub root_block: Hash,
+    pub author: PublicKey,
+    pub shards: Vec<String>
+}
 
-// impl SpaceShareLink {
-//     pub fn to_base64(&self) -> anyhow::Result<String> {
-//         let mut bytes = Vec::new();
+impl SpaceShareLink {
+    pub fn to_base64(&self) -> anyhow::Result<String> {
+        let mut bytes = Vec::new();
 
-//         bytes.push(0); // Format version
-//         bytes.write_u32_varint(self.title.len() as u32)?;
-//         bytes.extend_from_slice(self.title.as_bytes());
-//         bytes.extend_from_slice(&self.root_block.0);
-//         bytes.extend_from_slice(&self.author.to_bytes());
+        let title_len = self.title.len();
 
-//         for address in &self.shards {
-//             bytes.write_u32_varint(address.len() as u32)?;
-//             bytes.extend_from_slice(address.as_bytes());
-//         }
+        if !(1..u16::MAX as usize).contains(&title_len) {
+            anyhow::bail!("space title length must be at least 1 byte long and cannot exceed 65,535 bytes");
+        }
 
-//         let bytes = zstd::encode_all(
-//             Cursor::new(bytes),
-//             SPACE_SHARE_LINK_COMPRESSION_LEVEL
-//         )?;
+        // FIXME: format AFTER compressing the data.
 
-//         Ok(base64_encode(bytes))
-//     }
+        bytes.push(0); // Format version
+        bytes.extend((title_len as u16).to_le_bytes());
+        bytes.extend_from_slice(self.title.as_bytes());
+        bytes.extend_from_slice(&self.root_block.0);
+        bytes.extend_from_slice(&self.author.to_bytes());
 
-//     pub fn from_base64(link: impl AsRef<[u8]>) -> anyhow::Result<Self> {
-//         let bytes = base64_decode(link)?;
-//         let bytes = zstd::decode_all(bytes.as_slice())?;
+        for address in &self.shards {
+            let len = address.len();
 
-//         if bytes.len() < 66 {
-//             anyhow::bail!("space share link length must be at least 66 bytes long");
-//         }
+            if !(1..u16::MAX as usize).contains(&len) {
+                anyhow::bail!("shard address length must be at least 1 byte long and cannot exceed 65,535 bytes");
+            }
 
-//         if bytes[0] != 0 {
-//             anyhow::bail!("unknown space share link format");
-//         }
+            bytes.extend((len as u16).to_le_bytes());
+            bytes.extend_from_slice(address.as_bytes());
+        }
 
-//         let mut bytes = Cursor::new(bytes);
+        let bytes = zstd::encode_all(
+            Cursor::new(bytes),
+            SPACE_SHARE_LINK_COMPRESSION_LEVEL
+        )?;
 
-//         let title_len = bytes.read_u32_varint()? as usize;
+        Ok(base64_encode(bytes))
+    }
 
-//         let mut title = vec![0; title_len];
-//         let mut root_block = [0; 32];
-//         let mut author = [0; 33];
+    pub fn from_base64(link: impl AsRef<[u8]>) -> anyhow::Result<Self> {
+        let bytes = base64_decode(link)?;
+        let bytes = zstd::decode_all(bytes.as_slice())?;
 
-//         bytes.read_exact(&mut title)?;
-//         bytes.read_exact(&mut root_block)?;
-//         bytes.read_exact(&mut author)?;
+        let n = bytes.len();
 
-//         // TODO
+        if n < 66 {
+            anyhow::bail!("space share link length must be at least 66 bytes long");
+        }
 
-//         Ok(Self {
-//             title: String::from_utf8_lossy(&title)
-//                 .to_string(),
-//             root_block: Hash::from(root_block),
-//             author: PublicKey::from_bytes(author)?,
-//             shards: vec![]
-//         })
-//     }
-// }
+        if bytes[0] != 0 {
+            anyhow::bail!("unknown space share link format");
+        }
+
+        let mut title_len = [0; 2];
+
+        title_len.copy_from_slice(&bytes[1..3]);
+
+        let title_len = u16::from_le_bytes(title_len) as usize;
+
+        let mut title = vec![0; title_len];
+        let mut root_block = [0; 32];
+        let mut author = [0; 33];
+
+        title.copy_from_slice(&bytes[3..3 + title_len]);
+        root_block.copy_from_slice(&bytes[3 + title_len..35 + title_len]);
+        author.copy_from_slice(&bytes[35 + title_len..68 + title_len]);
+
+        let mut offset = 68 + title_len;
+
+        let mut address_len = [0; 2];
+        let mut shards = Vec::new();
+
+        while offset < n {
+            address_len.copy_from_slice(&bytes[offset..offset + 2]);
+
+            let address_len = u16::from_le_bytes(address_len) as usize;
+
+            let address = String::from_utf8_lossy(&bytes[offset + 2..offset + 2 + address_len])
+                .to_string();
+
+            shards.push(address);
+
+            offset += address_len + 2;
+        }
+
+        Ok(Self {
+            title: String::from_utf8_lossy(&title)
+                .to_string(),
+            root_block: Hash::from(root_block),
+            author: PublicKey::from_bytes(author)
+                .ok_or_else(|| anyhow::anyhow!("failed to decode space author's public key"))?,
+            shards
+        })
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpaceInfo {
@@ -239,4 +272,32 @@ impl SpaceRecord {
     pub fn shortname(&self) -> rusqlite::Result<String> {
         Ok(bytes_to_shortname(self.get_space_slice()?))
     }
+}
+
+#[test]
+fn test_share_link_serialize() -> anyhow::Result<()> {
+    let mut rng = crate::utils::get_rng();
+
+    let secret_key = SecretKey::random(&mut rng);
+
+    let link = SpaceShareLink {
+        title: String::from("Hello, World!"),
+        root_block: Hash::default(),
+        author: secret_key.public_key(),
+        shards: vec![
+            String::from("test 1"),
+            String::from("test 2"),
+            String::from("test 3"),
+            String::from("test 4"),
+            String::from("test 5")
+        ]
+    };
+
+    dbg!(link.to_base64()?);
+
+    let serialized_link = SpaceShareLink::from_base64(link.to_base64()?)?;
+
+    assert_eq!(link, serialized_link);
+
+    Ok(())
 }

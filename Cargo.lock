@@ -588,7 +588,6 @@ dependencies = [
  "spin",
  "time",
  "tokio",
- "varint-rs",
  "zstd",
 ]
 
