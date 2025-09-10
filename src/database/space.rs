@@ -16,11 +16,84 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+// use std::io::{Cursor, Read};
+
+// use varint_rs::{VarintReader, VarintWriter};
+
 use libflowerpot::crypto::*;
 
-use crate::utils::{bytes_to_emoji, bytes_to_shortname};
+use crate::utils::*;
 
 use super::Database;
+
+// const SPACE_SHARE_LINK_COMPRESSION_LEVEL: i32 = 20;
+
+// #[derive(Debug, Clone, PartialEq, Eq)]
+// pub struct SpaceShareLink {
+//     pub title: String,
+//     pub root_block: Hash,
+//     pub author: PublicKey,
+//     pub shards: Vec<String>
+// }
+
+// impl SpaceShareLink {
+//     pub fn to_base64(&self) -> anyhow::Result<String> {
+//         let mut bytes = Vec::new();
+
+//         bytes.push(0); // Format version
+//         bytes.write_u32_varint(self.title.len() as u32)?;
+//         bytes.extend_from_slice(self.title.as_bytes());
+//         bytes.extend_from_slice(&self.root_block.0);
+//         bytes.extend_from_slice(&self.author.to_bytes());
+
+//         for address in &self.shards {
+//             bytes.write_u32_varint(address.len() as u32)?;
+//             bytes.extend_from_slice(address.as_bytes());
+//         }
+
+//         let bytes = zstd::encode_all(
+//             Cursor::new(bytes),
+//             SPACE_SHARE_LINK_COMPRESSION_LEVEL
+//         )?;
+
+//         Ok(base64_encode(bytes))
+//     }
+
+//     pub fn from_base64(link: impl AsRef<[u8]>) -> anyhow::Result<Self> {
+//         let bytes = base64_decode(link)?;
+//         let bytes = zstd::decode_all(bytes.as_slice())?;
+
+//         if bytes.len() < 66 {
+//             anyhow::bail!("space share link length must be at least 66 bytes long");
+//         }
+
+//         if bytes[0] != 0 {
+//             anyhow::bail!("unknown space share link format");
+//         }
+
+//         let mut bytes = Cursor::new(bytes);
+
+//         let title_len = bytes.read_u32_varint()? as usize;
+
+//         let mut title = vec![0; title_len];
+//         let mut root_block = [0; 32];
+//         let mut author = [0; 33];
+
+//         bytes.read_exact(&mut title)?;
+//         bytes.read_exact(&mut root_block)?;
+//         bytes.read_exact(&mut author)?;
+
+//         // TODO
+
+//         Ok(Self {
+//             title: String::from_utf8_lossy(&title)
+//                 .to_string(),
+//             root_block: Hash::from(root_block),
+//             author: PublicKey::from_bytes(author)?,
+//             shards: vec![]
+//         })
+//     }
+// }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpaceInfo {

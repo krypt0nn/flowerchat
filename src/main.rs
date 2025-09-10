@@ -26,6 +26,7 @@ use libflowerpot::crypto::*;
 pub mod consts;
 pub mod utils;
 pub mod database;
+pub mod events;
 pub mod identities;
 pub mod tui;
 

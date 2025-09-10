@@ -29,7 +29,7 @@ regex = "1.11"
 lazy_static = "1.5"
 spin = "0.10"
 futures = "0.3"
-time = { version = "0.3", features = ["local-offset"] }
+time = { version = "0.3", features = ["parsing", "formatting", "local-offset"] }
 varint-rs = "2.2"
 zstd = "0.13"
 rand_chacha = "0.3"
