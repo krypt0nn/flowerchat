@@ -86,19 +86,31 @@ impl UserRecord {
         Ok(Self(database, id))
     }
 
-    /// Open existing user from its space ID and public key.
+    /// Find existing user from its space ID and public key. Return `None` if
+    /// such user doesn't exist.
     pub fn find(
         database: Database,
         space_id: i64,
         public_key: &PublicKey
-    ) -> rusqlite::Result<Self> {
-        let id = database.lock()
-            .prepare_cached("
-                SELECT id FROM users WHERE space_id = ?1 AND public_key = ?2
-            ")?
-            .query_row((space_id, public_key.to_bytes()), |row| row.get("id"))?;
+    ) -> rusqlite::Result<Option<Self>> {
+        let lock = database.lock();
 
-        Ok(Self(database, id))
+        let mut query = lock.prepare_cached("
+            SELECT id FROM users WHERE space_id = ?1 AND public_key = ?2
+        ")?;
+
+        let id = query.query_row((
+            space_id, public_key.to_bytes()
+        ), |row| row.get("id"));
+
+        drop(query);
+        drop(lock);
+
+        match id {
+            Ok(id) => Ok(Some(Self(database, id))),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(err) => Err(err)
+        }
     }
 
     #[inline(always)]

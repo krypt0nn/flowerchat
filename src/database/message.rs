@@ -22,8 +22,8 @@ use super::Database;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MessageInfo {
-    /// Internal ID of the chat.
-    pub chat_id: i64,
+    /// Internal ID of the room.
+    pub room_id: i64,
 
     /// Internal ID of the message sender.
     pub user_id: i64,
@@ -64,7 +64,7 @@ impl MessageRecord {
 
         let mut query = lock.prepare_cached("
             INSERT INTO messages (
-                chat_id,
+                room_id,
                 user_id,
                 block_hash,
                 transaction_hash,
@@ -76,7 +76,7 @@ impl MessageRecord {
         ")?;
 
         let id = query.insert((
-            info.chat_id,
+            info.room_id,
             info.user_id,
             info.block_hash.0,
             info.transaction_hash.0,
@@ -121,11 +121,11 @@ impl MessageRecord {
         self.1
     }
 
-    /// Internal ID of the chat.
-    pub fn chat_id(&self) -> rusqlite::Result<i64> {
+    /// Internal ID of the room.
+    pub fn room_id(&self) -> rusqlite::Result<i64> {
         self.0.lock()
-            .prepare_cached("SELECT chat_id FROM chats WHERE id = ?1")?
-            .query_row([self.1], |row| row.get("chat_id"))
+            .prepare_cached("SELECT room_id FROM chats WHERE id = ?1")?
+            .query_row([self.1], |row| row.get("room_id"))
     }
 
     /// Internal ID of the message sender.

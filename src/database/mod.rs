@@ -23,11 +23,13 @@ use std::iter::FusedIterator;
 use spin::{Mutex, MutexGuard};
 use rusqlite::Connection;
 
+use libflowerpot::crypto::Hash;
+
 pub mod space;
 pub mod shard;
 pub mod user;
 pub mod mint;
-pub mod chat;
+pub mod room;
 pub mod message;
 
 #[derive(Debug, Clone)]
@@ -53,6 +55,14 @@ impl Database {
                 id,
                 root_block,
                 author
+            );
+
+            CREATE TABLE IF NOT EXISTS handled_transactions (
+                space_id         INTEGER NOT NULL,
+                block_hash       BLOB    NOT NULL,
+                transaction_hash BLOB    NOT NULL,
+
+                PRIMARY KEY (space_id, block_hash, transaction_hash)
             );
 
             CREATE TABLE IF NOT EXISTS shards (
@@ -97,7 +107,7 @@ impl Database {
                 FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
             );
 
-            CREATE TABLE IF NOT EXISTS chats (
+            CREATE TABLE IF NOT EXISTS rooms (
                 id       INTEGER NOT NULL UNIQUE,
                 space_id INTEGER NOT NULL,
                 name     TEXT    NOT NULL,
@@ -113,7 +123,7 @@ impl Database {
                 FOREIGN KEY (author_id) REFERENCES users  (id) ON DELETE CASCADE
             );
 
-            CREATE INDEX IF NOT EXISTS chats_idx ON chats (
+            CREATE INDEX IF NOT EXISTS rooms_idx ON rooms (
                 id,
                 space_id,
                 name
@@ -121,7 +131,7 @@ impl Database {
 
             CREATE TABLE IF NOT EXISTS messages (
                 id      INTEGER NOT NULL UNIQUE,
-                chat_id INTEGER NOT NULL,
+                room_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
 
                 block_hash       BLOB NOT NULL,
@@ -133,13 +143,13 @@ impl Database {
                 content                TEXT    NOT NULL,
 
                 PRIMARY KEY (id),
-                FOREIGN KEY (chat_id)  REFERENCES chats  (id) ON DELETE CASCADE,
+                FOREIGN KEY (room_id)  REFERENCES rooms  (id) ON DELETE CASCADE,
                 FOREIGN KEY (user_id)  REFERENCES users  (id) ON DELETE CASCADE
             );
 
             CREATE INDEX IF NOT EXISTS messages_idx ON messages (
                 id,
-                chat_id,
+                room_id,
                 user_id,
                 block_hash,
                 transaction_hash
@@ -152,6 +162,63 @@ impl Database {
     #[inline]
     fn lock(&self) -> MutexGuard<'_, Connection> {
         self.0.lock()
+    }
+
+    /// Check if transaction with given values is handled.
+    pub fn is_handled(
+        &self,
+        space_id: i64,
+        block_hash: impl Into<Hash>,
+        transaction_hash: impl Into<Hash>
+    ) -> anyhow::Result<bool> {
+        let block_hash: Hash = block_hash.into();
+        let transaction_hash: Hash = transaction_hash.into();
+
+        let lock = self.lock();
+
+        let mut query = lock.prepare_cached("
+            SELECT 1 FROM handled_transactions
+            WHERE
+                space_id = ?1 AND
+                block_hash = ?2 AND
+                transaction_hash = ?3
+            LIMIT 1
+        ")?;
+
+        let result = query.query_one((
+            space_id,
+            block_hash.0,
+            transaction_hash.0
+        ), |_| Ok(true));
+
+        match result {
+            Ok(result) => Ok(result),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(false),
+            Err(err) => anyhow::bail!(err)
+        }
+    }
+
+    /// Mark transaction with given values as handled.
+    pub fn mark_handled(
+        &self,
+        space_id: i64,
+        block_hash: impl Into<Hash>,
+        transaction_hash: impl Into<Hash>
+    ) -> anyhow::Result<()> {
+        let block_hash: Hash = block_hash.into();
+        let transaction_hash: Hash = transaction_hash.into();
+
+        self.lock()
+            .prepare_cached("
+                INSERT OR IGNORE INTO handled_transactions (
+                    space_id,
+                    block_hash,
+                    transaction_hash
+                ) VALUES (?1, ?2, ?3)
+            ")?
+            .execute((space_id, block_hash.0, transaction_hash.0))?;
+
+        Ok(())
     }
 
     /// Get iterator over all the stored spaces.
