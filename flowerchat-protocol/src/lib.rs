@@ -16,6 +16,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+/// `flowerchat-protocol` crate version.
+pub const CRATE_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Flowerchat protocol version.
+pub const PROTOCOL_VERSION: &str = "v1";
+
 pub mod types;
 pub mod role;
 pub mod events;
