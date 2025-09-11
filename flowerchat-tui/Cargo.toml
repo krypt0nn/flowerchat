@@ -6,6 +6,9 @@ license = "GPL-3.0-or-later"
 edition = "2024"
 publish = false
 
+[dependencies.flowerchat-protocol]
+path = "../flowerchat-protocol"
+
 [dependencies.libflowerpot]
 git = "https://github.com/krypt0nn/libflowerpot"
 

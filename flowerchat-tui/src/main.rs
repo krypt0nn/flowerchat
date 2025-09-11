@@ -16,6 +16,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+/// `flowerchat-tui` app version.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 use std::io::{Read, Write};
 
 use anyhow::Context;
@@ -26,7 +29,6 @@ use libflowerpot::crypto::*;
 pub mod consts;
 pub mod utils;
 pub mod database;
-pub mod events;
 pub mod identities;
 pub mod tui;
 
@@ -133,7 +135,7 @@ async fn main() -> anyhow::Result<()> {
 
             let mut terminal = ratatui::init();
 
-            let result = tui::login::render(database, &mut terminal).await;
+            let result = tui::render(database, &mut terminal).await;
 
             ratatui::restore();
 
