@@ -19,8 +19,10 @@
 use std::io::Stdout;
 
 use anyhow::Context;
+use tokio::runtime::Handle;
+use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
-use ratatui::{Frame, Terminal};
+use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::crossterm::event::{self, Event, KeyCode};
 
@@ -71,10 +73,33 @@ struct TerminalWidget {
 }
 
 impl TerminalWidget {
+    pub fn prefix(&self, text: impl AsRef<str>) -> String {
+        match &self.prefix {
+            Some(prefix) => format!("{prefix} > {}", text.as_ref()),
+            None => format!("> {}", text.as_ref())
+        }
+    }
+
     pub fn push(&mut self, text: impl AsRef<str>) {
         for line in text.as_ref().lines() {
             self.history.push(line.to_string());
         }
+    }
+
+    pub fn allow_user_input(&mut self) -> TerminalWidgetCurrentLine {
+        let prev = self.ongoing.clone();
+
+        self.ongoing = TerminalWidgetCurrentLine::Input(String::new());
+
+        prev
+    }
+
+    pub fn forbid_user_input(&mut self) -> TerminalWidgetCurrentLine {
+        let prev = self.ongoing.clone();
+
+        self.ongoing = TerminalWidgetCurrentLine::Output(String::new());
+
+        prev
     }
 
     pub fn len(&self) -> usize {
@@ -108,12 +133,7 @@ impl TerminalWidget {
 
         match &self.ongoing {
             TerminalWidgetCurrentLine::Input(text) => {
-                let line = match &self.prefix {
-                    Some(prefix) => format!("{prefix} > {text}"),
-                    None => format!("> {text}")
-                };
-
-                lines.push(line);
+                lines.push(self.prefix(text));
             }
 
             TerminalWidgetCurrentLine::Output(text) => {
@@ -125,7 +145,31 @@ impl TerminalWidget {
     }
 }
 
+fn print_help(output: impl Fn(CommandAction)) {
+    output(CommandAction::Print(String::from("help - list available commands")));
+}
+
+async fn run_command(
+    command: impl IntoIterator<Item = String>,
+    output: impl Fn(CommandAction)
+) {
+    let mut command = command.into_iter();
+
+    match command.next().as_deref() {
+        Some("help") => print_help(output),
+
+        Some(_) | None => print_help(output)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum CommandAction {
+    /// Print text to the terminal widget.
+    Print(String)
+}
+
 pub async fn render(
+    runtime: Handle,
     database: Database,
     terminal: &mut Terminal<CrosstermBackend<Stdout>>
 ) -> anyhow::Result<()> {
@@ -136,7 +180,24 @@ pub async fn render(
     terminal_widget.push(format!("  flowerchat-protocol v{}", flowerchat_protocol::CRATE_VERSION));
     terminal_widget.push(format!("  protocol version: {}\n\n", flowerchat_protocol::PROTOCOL_VERSION));
 
+    let mut running_command: Option<UnboundedReceiver<CommandAction>> = None;
+
     loop {
+        if let Some(recv) = &mut running_command {
+            match recv.recv().await {
+                Some(action) => match action {
+                    CommandAction::Print(text) => terminal_widget.push(text)
+                }
+
+                None => {
+                    running_command = None;
+
+                    terminal_widget.allow_user_input();
+                    terminal_widget.push("\n");
+                }
+            }
+        }
+
         terminal.draw(|frame| {
             let area = frame.area();
 
@@ -160,64 +221,96 @@ pub async fn render(
             frame.render_widget(list, area);
         })?;
 
-        loop {
-            if let Event::Key(key) = event::read()? {
-                match key.code {
-                    KeyCode::Esc => return Ok(()),
+        // Do not handle any keyboard events while the command is running.
+        // TODO: ctrl+c for interrupting the command.
+        if running_command.is_none() {
+            loop {
+                match event::read()? {
+                    Event::Key(key) => match key.code {
+                        KeyCode::Esc => return Ok(()),
 
-                    KeyCode::Char(char) => {
-                        if let TerminalWidgetCurrentLine::Input(input) = &mut terminal_widget.ongoing {
-                            input.push(char);
+                        KeyCode::Char(char) => {
+                            if let TerminalWidgetCurrentLine::Input(input) = &mut terminal_widget.ongoing {
+                                input.push(char);
 
-                            break;
-                        }
-                    }
-
-                    KeyCode::Up | KeyCode::PageUp => {
-                        let stick_offset = terminal_widget.stick_offset(terminal_widget.height as usize);
-
-                        if let Some(offset) = &mut terminal_widget.offset {
-                            *offset = offset.saturating_sub(1);
-                        } else {
-                            terminal_widget.offset = Some(stick_offset.saturating_sub(1));
+                                break;
+                            }
                         }
 
-                        break;
-                    }
+                        KeyCode::Up | KeyCode::PageUp => {
+                            let stick_offset = terminal_widget.stick_offset(terminal_widget.height as usize);
 
-                    KeyCode::Down | KeyCode::PageDown => {
-                        let stick_offset = terminal_widget.stick_offset(terminal_widget.height as usize);
-
-                        if let Some(offset) = &mut terminal_widget.offset {
-                            if *offset + 1 >= stick_offset {
-                                terminal_widget.offset = None;
+                            if let Some(offset) = &mut terminal_widget.offset {
+                                *offset = offset.saturating_sub(1);
                             } else {
-                                *offset += 1;
+                                terminal_widget.offset = Some(stick_offset.saturating_sub(1));
                             }
 
                             break;
                         }
+
+                        KeyCode::Down | KeyCode::PageDown => {
+                            let stick_offset = terminal_widget.stick_offset(terminal_widget.height as usize);
+
+                            if let Some(offset) = &mut terminal_widget.offset {
+                                if *offset + 1 >= stick_offset {
+                                    terminal_widget.offset = None;
+                                } else {
+                                    *offset += 1;
+                                }
+
+                                break;
+                            }
+                        }
+
+                        KeyCode::Backspace => {
+                            if let TerminalWidgetCurrentLine::Input(input) = &mut terminal_widget.ongoing {
+                                input.pop();
+
+                                break;
+                            }
+                        }
+
+                        KeyCode::Enter => {
+                            let mut command = None;
+
+                            if let TerminalWidgetCurrentLine::Input(input) = terminal_widget.ongoing.clone() {
+                                command = Some(input.clone());
+
+                                terminal_widget.push(terminal_widget.prefix(input));
+                            }
+
+                            if let Some(command) = command {
+                                terminal_widget.forbid_user_input();
+
+                                let command = command.split_whitespace()
+                                    .map(String::from)
+                                    .collect::<Vec<String>>();
+
+                                let (send, recv) = unbounded_channel();
+
+                                runtime.spawn(run_command(command, move |action| {
+                                    let _ = send.send(action);
+                                }));
+
+                                running_command = Some(recv);
+
+                                break;
+                            }
+                        }
+
+                        _ => ()
                     }
 
-                    KeyCode::Backspace => {
+                    Event::Paste(text) => {
                         if let TerminalWidgetCurrentLine::Input(input) = &mut terminal_widget.ongoing {
-                            input.pop();
+                            input.push_str(&text);
 
                             break;
                         }
                     }
 
-                    KeyCode::Enter => {
-                        if let TerminalWidgetCurrentLine::Input(input) = &terminal_widget.ongoing {
-                            terminal_widget.push(input.clone());
-                        }
-
-                        if let TerminalWidgetCurrentLine::Input(input) = &mut terminal_widget.ongoing {
-                            input.clear();
-                        }
-
-                        break;
-                    }
+                    Event::Resize(_, _) => break,
 
                     _ => ()
                 }

@@ -23,6 +23,7 @@ use std::io::{Read, Write};
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
+use tokio::runtime::Handle;
 
 use libflowerpot::crypto::*;
 
@@ -135,7 +136,11 @@ async fn main() -> anyhow::Result<()> {
 
             let mut terminal = ratatui::init();
 
-            let result = tui::render(database, &mut terminal).await;
+            let result = tui::render(
+                Handle::current(),
+                database,
+                &mut terminal
+            ).await;
 
             ratatui::restore();
 
