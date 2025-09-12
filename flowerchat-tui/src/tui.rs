@@ -21,6 +21,7 @@ use std::io::Stdout;
 use anyhow::Context;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
+use tokio::sync::oneshot::{Sender, channel as oneshot_channel};
 
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
@@ -146,7 +147,118 @@ impl TerminalWidget {
 }
 
 fn print_help(output: impl Fn(CommandAction)) {
-    output(CommandAction::Print(String::from("help - list available commands")));
+    output(CommandAction::Print(String::from("+---------+-------------------------+\n")));
+    output(CommandAction::Print(String::from("| Command | Description             |\n")));
+    output(CommandAction::Print(String::from("+---------+-------------------------+\n")));
+    output(CommandAction::Print(String::from("| help    | list available commands |\n")));
+    output(CommandAction::Print(String::from("| spaces  | list available spaces   |\n")));
+    output(CommandAction::Print(String::from("+---------+-------------------------+\n")));
+}
+
+async fn print_spaces(output: impl Fn(CommandAction)) {
+    let (send, recv) = oneshot_channel();
+
+    output(CommandAction::RequestSpaces(send));
+
+    match recv.await {
+        Ok(spaces) => {
+            let mut spaces_data = Vec::new();
+
+            let mut max_id_len = 1;
+            let mut max_title_len = 1;
+            let mut max_root_block_len = 32;
+            let mut max_public_key_len = 33;
+
+            for space in spaces {
+                let title = match space.title() {
+                    Ok(title) if title.is_empty() => String::from("<unknown>"),
+                    Ok(title) => title,
+                    Err(err) => {
+                        output(CommandAction::Print(format!("failed to get space title: {err}")));
+
+                        return;
+                    }
+                };
+
+                let root_block = match space.root_block() {
+                    Ok(root_block) => root_block,
+                    Err(err) => {
+                        output(CommandAction::Print(format!("failed to get space root block: {err}")));
+
+                        return;
+                    }
+                };
+
+                let author = match space.author() {
+                    Ok(author) => author,
+                    Err(err) => {
+                        output(CommandAction::Print(format!("failed to get space author: {err}")));
+
+                        return;
+                    }
+                };
+
+                let space_id = space.id().to_string();
+                let root_block = root_block.to_base64();
+                let public_key = author.to_base64();
+
+                max_id_len = max_id_len.max(space_id.len());
+                max_title_len = max_title_len.max(title.len());
+                max_root_block_len = max_root_block_len.max(root_block.len());
+                max_public_key_len = max_public_key_len.max(public_key.len());
+
+                spaces_data.push((space_id, title, root_block, public_key));
+            }
+
+            if spaces_data.is_empty() {
+                return;
+            }
+
+            output(CommandAction::Print(format!(
+                "+-{}-+-{}-+-{}-+-{}-+\n",
+                "-".repeat(max_id_len),
+                "-".repeat(max_title_len),
+                "-".repeat(max_root_block_len),
+                "-".repeat(max_public_key_len)
+            )));
+
+            output(CommandAction::Print(format!(
+                "| #{} | Title{} | Root block{} | Public key{} |\n",
+                " ".repeat(max_id_len - 1),
+                " ".repeat(max_title_len - 5),
+                " ".repeat(max_root_block_len - 10),
+                " ".repeat(max_public_key_len - 10)
+            )));
+
+            output(CommandAction::Print(format!(
+                "+-{}-+-{}-+-{}-+-{}-+\n",
+                "-".repeat(max_id_len),
+                "-".repeat(max_title_len),
+                "-".repeat(max_root_block_len),
+                "-".repeat(max_public_key_len)
+            )));
+
+            for (space_id, title, root_block, public_key) in spaces_data {
+                output(CommandAction::Print(format!(
+                    "| {} | {} | {} | {} |\n",
+                    space_id,
+                    title,
+                    root_block,
+                    public_key
+                )));
+            }
+
+            output(CommandAction::Print(format!(
+                "+-{}-+-{}-+-{}-+-{}-+\n",
+                "-".repeat(max_id_len),
+                "-".repeat(max_title_len),
+                "-".repeat(max_root_block_len),
+                "-".repeat(max_public_key_len)
+            )));
+        }
+
+        Err(err) => output(CommandAction::Print(format!("failed to get spaces: {err}")))
+    }
 }
 
 async fn run_command(
@@ -157,15 +269,19 @@ async fn run_command(
 
     match command.next().as_deref() {
         Some("help") => print_help(output),
+        Some("spaces") => print_spaces(output).await,
 
         Some(_) | None => print_help(output)
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug)]
 enum CommandAction {
     /// Print text to the terminal widget.
-    Print(String)
+    Print(String),
+
+    /// Request list of available spaces.
+    RequestSpaces(Sender<Vec<SpaceRecord>>)
 }
 
 #[derive(Debug, Clone)]
@@ -192,7 +308,13 @@ pub async fn render(
         if let Some(recv) = &mut running_command {
             match recv.recv().await {
                 Some(action) => match action {
-                    CommandAction::Print(text) => terminal_widget.push(text)
+                    CommandAction::Print(text) => terminal_widget.push(text),
+                    CommandAction::RequestSpaces(send) => {
+                        let spaces = database.spaces()
+                            .collect::<Vec<SpaceRecord>>();
+
+                        let _ = send.send(spaces);
+                    }
                 }
 
                 None => {
