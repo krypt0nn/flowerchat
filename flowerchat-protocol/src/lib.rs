@@ -25,6 +25,7 @@ pub const PROTOCOL_VERSION: &str = "v1";
 pub mod types;
 pub mod role;
 pub mod events;
+pub mod share_link;
 
 pub mod prelude {
     pub use super::types::prelude::*;
