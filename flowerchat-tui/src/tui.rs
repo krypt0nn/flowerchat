@@ -478,11 +478,49 @@ pub async fn render(
         }
 
         terminal.draw(|frame| {
-            let area = frame.area();
+            let block = Block::bordered();
 
-            terminal_widget.height = area.height;
+            let terminal_area = match &connection {
+                // Render connected chat.
+                Some(_connection) => {
+                    let [public_rooms_area, terminal_area] = Layout::horizontal([
+                        Constraint::Percentage(20),
+                        Constraint::Percentage(80)
+                    ]).areas(frame.area());
 
-            let stick_offset = terminal_widget.stick_offset(area.height as usize);
+                    let terminal_inner_area = block.inner(terminal_area);
+
+                    frame.render_widget(
+                        block.title_top("Terminal"), // TODO: space info
+                        terminal_area
+                    );
+
+                    frame.render_widget(
+                        Block::bordered().title_top("Public rooms"),
+                        public_rooms_area
+                    );
+
+                    terminal_inner_area
+                }
+
+                // Render not connected chat (only terminal window).
+                None => {
+                    let terminal_area = block.inner(frame.area());
+
+                    frame.render_widget(
+                        block.title_top("Terminal"),
+                        frame.area()
+                    );
+
+                    terminal_area
+                }
+            };
+
+            // Update terminal properties and render it.
+
+            terminal_widget.height = terminal_area.height;
+
+            let stick_offset = terminal_widget.stick_offset(terminal_area.height as usize);
 
             let offset = match terminal_widget.offset {
                 Some(offset) if offset >= stick_offset => {
@@ -497,7 +535,7 @@ pub async fn render(
 
             let list = List::new(terminal_widget.lines(offset));
 
-            frame.render_widget(list, area);
+            frame.render_widget(list, terminal_area);
         })?;
 
         // Do not handle any keyboard events while the command is running.
