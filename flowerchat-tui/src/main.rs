@@ -31,6 +31,7 @@ pub mod consts;
 pub mod utils;
 pub mod database;
 pub mod identities;
+pub mod client;
 pub mod tui;
 
 #[derive(Parser)]
