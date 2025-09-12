@@ -25,7 +25,7 @@ use std::net::{SocketAddr, Ipv6Addr};
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use tokio::runtime::{Runtime, Handle};
+use tokio::runtime::Handle;
 
 use libflowerpot::crypto::*;
 use libflowerpot::block::{Block, BlockContent};
@@ -36,6 +36,9 @@ use libflowerpot::client::Client;
 use libflowerpot::pool::ShardsPool;
 use libflowerpot::security::SecurityRules;
 use libflowerpot::shard::{Shard, ShardSettings, serve as serve_shard};
+use libflowerpot::validator::{
+    Validator, ValidatorSettings, serve as serve_validator
+};
 
 pub mod consts;
 pub mod utils;
@@ -186,6 +189,25 @@ enum SpaceCommand {
         /// Maximal amount of inactive shards.
         #[arg(long, default_value_t = 1024)]
         max_inactive_shards: usize
+    },
+
+    /// Run validator to accept pending transactions and create new blocks.
+    Validate {
+        /// Secret key of the validator.
+        #[arg(short = 'k', long)]
+        secret_key: String,
+
+        /// Shard node address.
+        #[arg(short, long = "shard")]
+        shards: Vec<String>,
+
+        /// Maximal amount of active shards.
+        #[arg(long, default_value_t = 16)]
+        max_active_shards: usize,
+
+        /// Maximal amount of inactive shards.
+        #[arg(long, default_value_t = 1024)]
+        max_inactive_shards: usize
     }
 }
 
@@ -310,11 +332,6 @@ impl SpaceCommand {
 
                 stdout.flush()?;
 
-                let runtime = Runtime::new()
-                    .context("failed to create tokio runtime")?;
-
-                let handle = runtime.handle().to_owned();
-
                 serve_shard(Shard {
                     client,
                     shards: pool,
@@ -325,7 +342,55 @@ impl SpaceCommand {
                         ..SecurityRules::default()
                     },
                     settings: ShardSettings::default()
-                }, handle).await?;
+                }, Handle::current()).await?;
+            }
+
+            Self::Validate {
+                secret_key,
+                shards,
+                max_active_shards,
+                max_inactive_shards
+            } => {
+                let mut stdout = std::io::stdout();
+
+                let secret_key = SecretKey::from_base64(secret_key)
+                    .ok_or_else(|| anyhow::anyhow!("invalid secret key format"))?;
+
+                let client = Client::default();
+                let mut pool = ShardsPool::default();
+
+                pool.with_max_active(max_active_shards)
+                    .with_max_inactive(max_inactive_shards)
+                    .add_shards(shards);
+
+                stdout.write_all(b"Bootstrapping shards pool...")?;
+                stdout.flush()?;
+
+                pool.update(&client).await;
+
+                stdout.write_all(format!(
+                    " {} active, {} inactive\n",
+                    pool.active().count(),
+                    pool.inactive().count()
+                ).as_bytes())?;
+
+                if pool.active().count() == 0 {
+                    stdout.write_all(b"Not enough shards to start a validator\n")?;
+                    stdout.flush()?;
+                }
+
+                else {
+                    stdout.write_all(b"Validator started\n")?;
+                    stdout.flush()?;
+
+                    serve_validator(Validator {
+                        client,
+                        shards: pool,
+                        secret_key,
+                        security_rules: SecurityRules::default(),
+                        settings: ValidatorSettings::default()
+                    }).await?;
+                }
             }
         }
 
@@ -333,7 +398,7 @@ impl SpaceCommand {
     }
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
     std::fs::create_dir_all(consts::DATA_FOLDER.as_path())
         .map_err(|err| {
