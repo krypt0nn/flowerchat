@@ -21,22 +21,28 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::net::{SocketAddr, Ipv6Addr};
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use tokio::runtime::Handle;
+use tokio::runtime::{Runtime, Handle};
 
 use libflowerpot::crypto::*;
 use libflowerpot::block::{Block, BlockContent};
 use libflowerpot::transaction::Transaction;
 use libflowerpot::storage::Storage;
 use libflowerpot::storage::file_storage::FileStorage;
+use libflowerpot::client::Client;
+use libflowerpot::pool::ShardsPool;
+use libflowerpot::security::SecurityRules;
+use libflowerpot::shard::{Shard, ShardSettings, serve as serve_shard};
 
 pub mod consts;
 pub mod utils;
 pub mod database;
 pub mod identities;
 pub mod client;
+pub mod validator;
 pub mod tui;
 
 #[derive(Parser)]
@@ -145,6 +151,41 @@ enum SpaceCommand {
         /// generated randomly.
         #[arg(short, long)]
         secret_key: Option<String>
+    },
+
+    /// Serve space to other nodes (start blockchain shard).
+    Serve {
+        /// Path to the blockchain folder.
+        #[arg(short, long)]
+        path: PathBuf,
+
+        /// Another shard node to connect with.
+        #[arg(short, long = "shard")]
+        shards: Vec<String>,
+
+        /// Local address of the shard.
+        #[arg(
+            short, long,
+            default_value_t = SocketAddr::new(
+                Ipv6Addr::UNSPECIFIED.into(),
+                47901
+            )
+        )]
+        local_address: SocketAddr,
+
+        /// Remote address which can be accessible by other shards. If provided,
+        /// it will be shared with them at bootstrap stage to improve network
+        /// sparsity.
+        #[arg(short, long)]
+        remote_address: Option<String>,
+
+        /// Maximal amount of active shards.
+        #[arg(long, default_value_t = 16)]
+        max_active_shards: usize,
+
+        /// Maximal amount of inactive shards.
+        #[arg(long, default_value_t = 1024)]
+        max_inactive_shards: usize
     }
 }
 
@@ -184,13 +225,115 @@ impl SpaceCommand {
                 println!("  Public key: {}", secret_key.public_key().to_base64());
                 println!("  Secret key: {}", secret_key.to_base64());
             }
+
+            Self::Serve {
+                path,
+                shards,
+                local_address,
+                remote_address,
+                max_active_shards,
+                max_inactive_shards
+            } => {
+                let mut stdout = std::io::stdout();
+
+                if !path.exists() {
+                    anyhow::bail!("blockchain folder doesn't exist");
+                }
+
+                let storage = FileStorage::open(path)
+                    .context("failed to open blockchain storage")?;
+
+                let root_block = storage.root_block()
+                    .context("failed to get root block from the storage")?;
+
+                let Some(root_block) = root_block else {
+                    anyhow::bail!("root block is not stored");
+                };
+
+                let root_block = storage.read_block(&root_block)
+                    .context("failed to read root block from the storage")?;
+
+                let Some(root_block) = root_block else {
+                    anyhow::bail!("root block is not stored");
+                };
+
+                let (is_valid, root_block_hash, public_key) = root_block.verify()
+                    .context("failed to verify root block of the blockchain")?;
+
+                if !is_valid {
+                    anyhow::bail!("root block is invalid");
+                }
+
+                let client = Client::default();
+                let mut pool = ShardsPool::default();
+
+                pool.with_max_active(max_active_shards)
+                    .with_max_inactive(max_inactive_shards)
+                    .add_shards(shards);
+
+                stdout.write_all(b"Bootstrapping shards pool...")?;
+                stdout.flush()?;
+
+                pool.update(&client).await;
+
+                stdout.write_all(format!(
+                    " {} active, {} inactive\n",
+                    pool.active().count(),
+                    pool.inactive().count()
+                ).as_bytes())?;
+
+                stdout.flush()?;
+
+                // TODO
+                // if let Some(remote_address) = &remote_address {
+                //     stdout.write_all(b"Sharing remote address to network shards...")?;
+                //     stdout.flush()?;
+
+                //     for address in pool.active() {
+                //         todo!();
+                //     }
+                // }
+
+                stdout.write_all(format!(
+                    "Shard started at {local_address}\n"
+                ).as_bytes())?;
+
+                stdout.write_all(format!(
+                    "  Root block: {}\n",
+                    root_block_hash.to_base64()
+                ).as_bytes())?;
+
+                stdout.write_all(format!(
+                    "  Public key: {}\n",
+                    public_key.to_base64()
+                ).as_bytes())?;
+
+                stdout.flush()?;
+
+                let runtime = Runtime::new()
+                    .context("failed to create tokio runtime")?;
+
+                let handle = runtime.handle().to_owned();
+
+                serve_shard(Shard {
+                    client,
+                    shards: pool,
+                    local_address,
+                    remote_address,
+                    storage,
+                    security_rules: SecurityRules {
+                        ..SecurityRules::default()
+                    },
+                    settings: ShardSettings::default()
+                }, handle).await?;
+            }
         }
 
         Ok(())
     }
 }
 
-#[tokio::main(flavor = "multi_thread")]
+#[tokio::main]
 async fn main() -> anyhow::Result<()> {
     std::fs::create_dir_all(consts::DATA_FOLDER.as_path())
         .map_err(|err| {
