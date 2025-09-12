@@ -18,8 +18,8 @@
 
 use std::io::Stdout;
 
-use anyhow::Context;
 use tokio::runtime::Handle;
+use tokio::task::JoinHandle;
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 use tokio::sync::oneshot::{Sender, channel as oneshot_channel};
 
@@ -32,10 +32,13 @@ use ratatui::widgets::*;
 use ratatui::text::*;
 use ratatui::style::*;
 
-use crate::consts::*;
+use libflowerpot::crypto::*;
+use libflowerpot::client::Client;
+use libflowerpot::pool::ShardsPool;
+use libflowerpot::viewer::Viewer;
+
 use crate::database::Database;
 use crate::database::space::SpaceRecord;
-use crate::identities::Identity;
 
 const FLOWERCHAT_LOGO: &str = r#"
   __ _                            _           _
@@ -147,12 +150,13 @@ impl TerminalWidget {
 }
 
 fn print_help(output: impl Fn(CommandAction)) {
-    output(CommandAction::Print(String::from("+---------+-------------------------+\n")));
-    output(CommandAction::Print(String::from("| Command | Description             |\n")));
-    output(CommandAction::Print(String::from("+---------+-------------------------+\n")));
-    output(CommandAction::Print(String::from("| help    | list available commands |\n")));
-    output(CommandAction::Print(String::from("| spaces  | list available spaces   |\n")));
-    output(CommandAction::Print(String::from("+---------+-------------------------+\n")));
+    output(CommandAction::Print(String::from("+-----------------------------+-------------------------+")));
+    output(CommandAction::Print(String::from("| Command                     | Description             |")));
+    output(CommandAction::Print(String::from("+-----------------------------+-------------------------+")));
+    output(CommandAction::Print(String::from("| help                        | list available commands |")));
+    output(CommandAction::Print(String::from("| spaces                      | list available spaces   |")));
+    output(CommandAction::Print(String::from("| connect <space> <identity>  | connect to space        |")));
+    output(CommandAction::Print(String::from("+-----------------------------+-------------------------+")));
 }
 
 async fn print_spaces(output: impl Fn(CommandAction)) {
@@ -215,7 +219,7 @@ async fn print_spaces(output: impl Fn(CommandAction)) {
             }
 
             output(CommandAction::Print(format!(
-                "+-{}-+-{}-+-{}-+-{}-+\n",
+                "+-{}-+-{}-+-{}-+-{}-+",
                 "-".repeat(max_id_len),
                 "-".repeat(max_title_len),
                 "-".repeat(max_root_block_len),
@@ -223,7 +227,7 @@ async fn print_spaces(output: impl Fn(CommandAction)) {
             )));
 
             output(CommandAction::Print(format!(
-                "| #{} | Title{} | Root block{} | Public key{} |\n",
+                "| #{} | Title{} | Root block{} | Public key{} |",
                 " ".repeat(max_id_len - 1),
                 " ".repeat(max_title_len - 5),
                 " ".repeat(max_root_block_len - 10),
@@ -231,7 +235,7 @@ async fn print_spaces(output: impl Fn(CommandAction)) {
             )));
 
             output(CommandAction::Print(format!(
-                "+-{}-+-{}-+-{}-+-{}-+\n",
+                "+-{}-+-{}-+-{}-+-{}-+",
                 "-".repeat(max_id_len),
                 "-".repeat(max_title_len),
                 "-".repeat(max_root_block_len),
@@ -240,7 +244,7 @@ async fn print_spaces(output: impl Fn(CommandAction)) {
 
             for (space_id, title, root_block, public_key) in spaces_data {
                 output(CommandAction::Print(format!(
-                    "| {} | {} | {} | {} |\n",
+                    "| {} | {} | {} | {} |",
                     space_id,
                     title,
                     root_block,
@@ -249,7 +253,7 @@ async fn print_spaces(output: impl Fn(CommandAction)) {
             }
 
             output(CommandAction::Print(format!(
-                "+-{}-+-{}-+-{}-+-{}-+\n",
+                "+-{}-+-{}-+-{}-+-{}-+",
                 "-".repeat(max_id_len),
                 "-".repeat(max_title_len),
                 "-".repeat(max_root_block_len),
@@ -258,6 +262,82 @@ async fn print_spaces(output: impl Fn(CommandAction)) {
         }
 
         Err(err) => output(CommandAction::Print(format!("failed to get spaces: {err}")))
+    }
+}
+
+async fn connect_space(
+    space: impl ToString,
+    identity: impl AsRef<[u8]>,
+    output: impl Fn(CommandAction)
+) {
+    let Some(identity) = SecretKey::from_base64(identity) else {
+        output(CommandAction::Print(String::from("invalid identity format: base64 secret key expected")));
+
+        return;
+    };
+
+    let (send, recv) = oneshot_channel();
+
+    output(CommandAction::RequestSpaceRecord(space.to_string(), send));
+
+    match recv.await {
+        Ok(Ok(space)) => {
+            let shards = match space.shards() {
+                Ok(shards) => shards,
+                Err(err) => {
+                    output(CommandAction::Print(format!("failed to get space shards: {err}")));
+
+                    return;
+                }
+            };
+
+            let root_block = match space.root_block() {
+                Ok(root_block) => root_block,
+                Err(err) => {
+                    output(CommandAction::Print(format!("failed to get space root block: {err}")));
+
+                    return;
+                }
+            };
+
+            output(CommandAction::SetCurrentLine(String::from("bootstrapping shards pool...")));
+
+            let client = Client::default();
+            let mut pool = ShardsPool::new(shards);
+
+            pool.update(&client).await;
+
+            output(CommandAction::SetCurrentLine(String::new()));
+            output(CommandAction::Print(format!(
+                "bootstrapping shards pool... {} active, {} inactive\n",
+                pool.active().count(),
+                pool.inactive().count()
+            )));
+
+            output(CommandAction::Print(String::from("opening blockchain viewer...")));
+
+            let viewer = match Viewer::open(client, pool.active(), Some(root_block)).await {
+                Ok(Some(viewer)) => viewer,
+
+                Ok(None) => {
+                    output(CommandAction::Print(String::from("none of shards provides space blockchain")));
+
+                    return;
+                }
+
+                Err(err) => {
+                    output(CommandAction::Print(format!("failed to open blockchain viewer: {err}")));
+
+                    return;
+                }
+            };
+
+            output(CommandAction::Print(String::from("connecting to the space...")));
+            output(CommandAction::Connect(space, identity, viewer));
+        }
+
+        Ok(Err(err)) => output(CommandAction::Print(format!("failed to obtain space record: {err}"))),
+        Err(err) => output(CommandAction::Print(format!("failed to obtain space record: {err}")))
     }
 }
 
@@ -271,22 +351,49 @@ async fn run_command(
         Some("help") => print_help(output),
         Some("spaces") => print_spaces(output).await,
 
+        Some("connect") => {
+            let Some(space) = command.next() else {
+                output(CommandAction::Print(String::from("space id or root block hash is not specified")));
+
+                return;
+            };
+
+            let Some(identity) = command.next() else {
+                output(CommandAction::Print(String::from("identity (secret key) is not specified")));
+
+                return;
+            };
+
+            connect_space(space, identity, output).await
+        }
+
         Some(_) | None => print_help(output)
     }
 }
 
-#[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 enum CommandAction {
     /// Print text to the terminal widget.
     Print(String),
 
+    /// Set current output line in the terminal widget.
+    SetCurrentLine(String),
+
     /// Request list of available spaces.
-    RequestSpaces(Sender<Vec<SpaceRecord>>)
+    RequestSpaces(Sender<Vec<SpaceRecord>>),
+
+    /// Request space record from provided input query.
+    RequestSpaceRecord(String, Sender<anyhow::Result<SpaceRecord>>),
+
+    /// Connect to the space.
+    Connect(SpaceRecord, SecretKey, Viewer)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct Connection {
-    pub space: SpaceRecord
+    pub task: JoinHandle<anyhow::Result<()>>,
+    pub space: SpaceRecord,
+    pub identity: SecretKey
 }
 
 pub async fn render(
@@ -309,11 +416,55 @@ pub async fn render(
             match recv.recv().await {
                 Some(action) => match action {
                     CommandAction::Print(text) => terminal_widget.push(text),
-                    CommandAction::RequestSpaces(send) => {
+
+                    CommandAction::SetCurrentLine(text) => {
+                        terminal_widget.ongoing = TerminalWidgetCurrentLine::Output(text);
+                    }
+
+                    CommandAction::RequestSpaces(sender) => {
                         let spaces = database.spaces()
                             .collect::<Vec<SpaceRecord>>();
 
-                        let _ = send.send(spaces);
+                        let _ = sender.send(spaces);
+                    }
+
+                    CommandAction::RequestSpaceRecord(space, sender) => {
+                        let space = match space.parse::<i64>() {
+                            Ok(space_id) => {
+                                SpaceRecord::open(database.clone(), space_id)
+                                    .map_err(|err| {
+                                        anyhow::anyhow!(err)
+                                            .context("failed to open space record")
+                                    })
+                            }
+
+                            Err(_) => match Hash::from_base64(space) {
+                                Some(space_hash) => {
+                                    match SpaceRecord::find(database.clone(), &space_hash) {
+                                        Ok(Some(record)) => Ok(record),
+                                        Ok(None) => Err(anyhow::anyhow!("there's no space record with such root block hash")),
+                                        Err(err) => Err(anyhow::anyhow!(err).context("failed to find space record"))
+                                    }
+                                }
+
+                                None => Err(anyhow::anyhow!("invalid space root block hash format"))
+                            }
+                        };
+
+                        let _ = sender.send(space);
+                    }
+
+                    CommandAction::Connect(space, identity, viewer) => {
+                        let task = runtime.spawn(crate::client::run(
+                            database.clone(),
+                            viewer
+                        ));
+
+                        connection = Some(Connection {
+                            task,
+                            space,
+                            identity
+                        });
                     }
                 }
 
