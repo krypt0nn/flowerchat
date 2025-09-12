@@ -50,6 +50,9 @@ pub mod client;
 pub mod validator;
 pub mod tui;
 
+use database::Database;
+use database::space::{SpaceRecord, SpaceInfo};
+
 #[derive(Parser)]
 #[command(version)]
 struct Cli {
@@ -74,10 +77,10 @@ enum Command {
 
 impl Command {
     #[inline]
-    pub async fn run(self) -> anyhow::Result<()> {
+    pub async fn run(self, database: Database) -> anyhow::Result<()> {
         match self {
             Self::Keypair { command } => command.run().await,
-            Self::Space { command } => command.run().await
+            Self::Space { command } => command.run(database).await
         }
     }
 }
@@ -162,6 +165,13 @@ enum SpaceCommand {
         shards: Vec<String>,
     },
 
+    /// Import space to the database.
+    Import {
+        /// Space sharing link.
+        #[arg(short, long)]
+        link: String
+    },
+
     /// Serve space to other nodes (start blockchain shard).
     Serve {
         /// Path to the blockchain folder.
@@ -219,7 +229,7 @@ enum SpaceCommand {
 
 impl SpaceCommand {
     #[inline]
-    pub async fn run(self) -> anyhow::Result<()> {
+    pub async fn run(self, database: Database) -> anyhow::Result<()> {
         match self {
             Self::Create { path, secret_key, shards } => {
                 let secret_key = match secret_key {
@@ -258,6 +268,44 @@ impl SpaceCommand {
                 println!("  Root block: {}", block_hash.to_base64());
                 println!("  Public key: {}", secret_key.public_key().to_base64());
                 println!("  Secret key: {}", secret_key.to_base64());
+                println!("  Share link: {}", share_link.to_base64()?);
+            }
+
+            Self::Import { link } => {
+                let link = ShareLink::from_base64(link)
+                    .context("invalid share link format")?;
+
+                let space = SpaceRecord::find(database.clone(), link.root_block())
+                    .context("failed to find space in the database")?;
+
+                let space = match space {
+                    Some(space) => space,
+                    None => {
+                        SpaceRecord::create(database.clone(), &SpaceInfo {
+                            title: String::new(),
+                            root_block: *link.root_block(),
+                            author: link.public_key().to_owned()
+                        }).context("failed to create space")?
+                    }
+                };
+
+                for address in link.shards() {
+                    space.add_shard(address)
+                        .context("failed to add shard address to the space")?;
+                }
+
+                let shards = space.shards()
+                    .context("failed to get shards list for the space")?;
+
+                let share_link = ShareLink::new(
+                    space.root_block()?,
+                    space.author()?,
+                    shards
+                );
+
+                println!("Space imported");
+                println!("  Root block: {}", share_link.root_block().to_base64());
+                println!("  Public key: {}", share_link.public_key().to_base64());
                 println!("  Share link: {}", share_link.to_base64()?);
             }
 
@@ -430,13 +478,13 @@ async fn main() -> anyhow::Result<()> {
                 .context("failed to create flowerchat data folder")
         })?;
 
-    match Cli::parse().command {
-        Some(command) => command.run().await,
-        None => {
-            let database = database::Database::open(
-                consts::DATABASE_PATH.as_path()
-            ).context("failed to open flowerchat database")?;
+    let database = database::Database::open(
+        consts::DATABASE_PATH.as_path()
+    ).context("failed to open flowerchat database")?;
 
+    match Cli::parse().command {
+        Some(command) => command.run(database).await,
+        None => {
             let mut terminal = ratatui::init();
 
             let result = tui::render(

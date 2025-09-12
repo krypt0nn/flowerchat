@@ -26,7 +26,6 @@ use rusqlite::Connection;
 use libflowerpot::crypto::Hash;
 
 pub mod space;
-pub mod shard;
 pub mod user;
 pub mod public_room;
 pub mod public_message;

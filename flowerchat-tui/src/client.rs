@@ -95,6 +95,10 @@ pub async fn run(
     let space = SpaceRecord::find(database.clone(), viewer.root_block())
         .context("failed to find space in the database with the viewer's root block")?;
 
+    let Some(space) = space else {
+        anyhow::bail!("space with requested hash is not stored in the database");
+    };
+
     let result = read_events(viewer, |event| -> anyhow::Result<()> {
         let is_handled = database.is_handled(
             space.id(),

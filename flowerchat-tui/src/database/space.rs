@@ -83,16 +83,21 @@ impl SpaceRecord {
         Ok(Self(database, id))
     }
 
-    /// Open existing space from its root block hash.
+    /// Open existing space from its root block hash. Return `None` if such
+    /// space doesn't exist.
     pub fn find(
         database: Database,
         root_block: &Hash
-    ) -> rusqlite::Result<Self> {
+    ) -> rusqlite::Result<Option<Self>> {
         let id = database.lock()
             .prepare_cached("SELECT id FROM spaces WHERE root_block = ?1")?
-            .query_row([root_block.0], |row| row.get("id"))?;
+            .query_row([root_block.0], |row| row.get("id"));
 
-        Ok(Self(database, id))
+        match id {
+            Ok(id) => Ok(Some(Self(database, id))),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(err) => Err(err)
+        }
     }
 
     #[inline(always)]
@@ -143,6 +148,36 @@ impl SpaceRecord {
             .execute((self.1, title.as_ref()))?;
 
         Ok(self)
+    }
+
+    /// List of current space shards.
+    pub fn shards(&self) -> rusqlite::Result<Vec<String>> {
+        let lock = self.0.lock();
+
+        let mut query = lock.prepare_cached(
+            "SELECT address FROM shards WHERE space_id = ?1"
+        )?;
+
+        let mut shards = Vec::new();
+
+        for address in query.query_map([self.1], |row| row.get("address"))? {
+            shards.push(address?);
+        }
+
+        Ok(shards)
+    }
+
+    /// Add shard address to the current space.
+    pub fn add_shard(&self, address: impl AsRef<str>) -> rusqlite::Result<()> {
+        let lock = self.0.lock();
+
+        let mut query = lock.prepare_cached(
+            "INSERT OR IGNORE INTO shards (space_id, address) VALUES (?1, ?2)"
+        )?;
+
+        query.execute((self.1, address.as_ref()))?;
+
+        Ok(())
     }
 
     fn get_space_slice(&self) -> rusqlite::Result<[u8; 65]> {
