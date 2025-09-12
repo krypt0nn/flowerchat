@@ -168,6 +168,11 @@ enum CommandAction {
     Print(String)
 }
 
+#[derive(Debug, Clone)]
+struct Connection {
+    pub space: SpaceRecord
+}
+
 pub async fn render(
     runtime: Handle,
     database: Database,
@@ -181,6 +186,7 @@ pub async fn render(
     terminal_widget.push(format!("  protocol version: {}\n\n", flowerchat_protocol::PROTOCOL_VERSION));
 
     let mut running_command: Option<UnboundedReceiver<CommandAction>> = None;
+    let mut connection: Option<Connection> = None;
 
     loop {
         if let Some(recv) = &mut running_command {

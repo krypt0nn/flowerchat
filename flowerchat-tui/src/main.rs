@@ -20,12 +20,17 @@
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use std::io::{Read, Write};
+use std::path::PathBuf;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use tokio::runtime::Handle;
 
 use libflowerpot::crypto::*;
+use libflowerpot::block::{Block, BlockContent};
+use libflowerpot::transaction::Transaction;
+use libflowerpot::storage::Storage;
+use libflowerpot::storage::file_storage::FileStorage;
 
 pub mod consts;
 pub mod utils;
@@ -47,6 +52,12 @@ enum Command {
     Keypair {
         #[command(subcommand)]
         command: KeypairCommand
+    },
+
+    /// Spaces management tools.
+    Space {
+        #[command(subcommand)]
+        command: SpaceCommand
     }
 }
 
@@ -54,7 +65,8 @@ impl Command {
     #[inline]
     pub async fn run(self) -> anyhow::Result<()> {
         match self {
-            Self::Keypair { command } => command.run().await
+            Self::Keypair { command } => command.run().await,
+            Self::Space { command } => command.run().await
         }
     }
 }
@@ -66,10 +78,11 @@ enum KeypairCommand {
 
     /// Export public key from the provided secret key.
     ///
-    /// If `secret` argument is not specified then stdin value will be used
+    /// If `secret_key` argument is not specified then stdin value will be used
     /// as input. Returns no value if secret key is not provided at all.
     Export {
-        secret: Option<String>
+        #[arg(short, long)]
+        secret_key: Option<String>
     }
 }
 
@@ -86,8 +99,8 @@ impl KeypairCommand {
                 stdout.flush()?;
             }
 
-            Self::Export { secret } => {
-                let secret_key = match secret {
+            Self::Export { secret_key } => {
+                let secret_key = match secret_key {
                     Some(secret_key) => secret_key.as_bytes().to_vec(),
                     None => {
                         let mut secret_key = Vec::new();
@@ -113,6 +126,63 @@ impl KeypairCommand {
 
                 stdout.write_all(public_key.to_base64().as_bytes())?;
                 stdout.flush()?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Subcommand)]
+enum SpaceCommand {
+    /// Create new space.
+    Create {
+        /// Path to the folder where the space's blockchain should be stored.
+        #[arg(short, long)]
+        path: PathBuf,
+
+        /// Secret key of the space's blockchain creator. If unset then will be
+        /// generated randomly.
+        #[arg(short, long)]
+        secret_key: Option<String>
+    }
+}
+
+impl SpaceCommand {
+    #[inline]
+    pub async fn run(self) -> anyhow::Result<()> {
+        match self {
+            Self::Create { path, secret_key } => {
+                let secret_key = match secret_key {
+                    Some(secret_key) => SecretKey::from_base64(secret_key)
+                        .ok_or_else(|| anyhow::anyhow!("invalid secret key format"))?,
+                    None => SecretKey::random(&mut utils::get_rng())
+                };
+
+                if !path.exists() {
+                    std::fs::create_dir_all(&path)?;
+                } else {
+                    anyhow::bail!("path is already occupied: {path:?}");
+                }
+
+                let storage = FileStorage::open(path)
+                    .context("failed to create file storage for the blockchain")?;
+
+                let block = BlockContent::transactions::<Transaction>([]);
+
+                let block = Block::new(&secret_key, Hash::default(), block)
+                    .context("failed to sign root block of the blockchain")?;
+
+                let block_hash = block.hash()
+                    .context("failed to calculate root block hash")?;
+
+                storage.write_block(&block)
+                    .context("failed to write root block to the blockchain")?;
+
+                println!("Space created!");
+                println!("  Root block: {}", block_hash.to_base64());
+                println!("  Public key: {}", secret_key.public_key().to_base64());
+                println!("  Secret key: {}", secret_key.to_base64());
             }
         }
 
