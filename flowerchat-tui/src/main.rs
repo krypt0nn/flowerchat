@@ -40,6 +40,8 @@ use libflowerpot::validator::{
     Validator, ValidatorSettings, serve as serve_validator
 };
 
+use flowerchat_protocol::share_link::ShareLink;
+
 pub mod consts;
 pub mod utils;
 pub mod database;
@@ -152,8 +154,12 @@ enum SpaceCommand {
 
         /// Secret key of the space's blockchain creator. If unset then will be
         /// generated randomly.
-        #[arg(short, long)]
-        secret_key: Option<String>
+        #[arg(short = 'k', long)]
+        secret_key: Option<String>,
+
+        /// Shard node address which will be added to the space sharing link.
+        #[arg(short, long = "shard")]
+        shards: Vec<String>,
     },
 
     /// Serve space to other nodes (start blockchain shard).
@@ -215,7 +221,7 @@ impl SpaceCommand {
     #[inline]
     pub async fn run(self) -> anyhow::Result<()> {
         match self {
-            Self::Create { path, secret_key } => {
+            Self::Create { path, secret_key, shards } => {
                 let secret_key = match secret_key {
                     Some(secret_key) => SecretKey::from_base64(secret_key)
                         .ok_or_else(|| anyhow::anyhow!("invalid secret key format"))?,
@@ -242,10 +248,17 @@ impl SpaceCommand {
                 storage.write_block(&block)
                     .context("failed to write root block to the blockchain")?;
 
+                let share_link = ShareLink::new::<String>(
+                    block_hash,
+                    secret_key.public_key(),
+                    shards
+                );
+
                 println!("Space created!");
                 println!("  Root block: {}", block_hash.to_base64());
                 println!("  Public key: {}", secret_key.public_key().to_base64());
                 println!("  Secret key: {}", secret_key.to_base64());
+                println!("  Share link: {}", share_link.to_base64()?);
             }
 
             Self::Serve {
@@ -316,6 +329,12 @@ impl SpaceCommand {
                 //     }
                 // }
 
+                let share_link = ShareLink::new(
+                    root_block_hash,
+                    public_key.clone(),
+                    pool.active()
+                );
+
                 stdout.write_all(format!(
                     "Shard started at {local_address}\n"
                 ).as_bytes())?;
@@ -328,6 +347,11 @@ impl SpaceCommand {
                 stdout.write_all(format!(
                     "  Public key: {}\n",
                     public_key.to_base64()
+                ).as_bytes())?;
+
+                stdout.write_all(format!(
+                    "  Share link: {}\n",
+                    share_link.to_base64()?
                 ).as_bytes())?;
 
                 stdout.flush()?;
