@@ -21,7 +21,7 @@ use libflowerpot::crypto::*;
 use super::Database;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct RoomInfo {
+pub struct PublicRoomInfo {
     /// Internal ID of the space this room belongs to.
     pub space_id: i64,
 
@@ -39,18 +39,18 @@ pub struct RoomInfo {
 }
 
 #[derive(Debug, Clone)]
-pub struct RoomRecord(Database, i64);
+pub struct PublicRoomRecord(Database, i64);
 
-impl RoomRecord {
+impl PublicRoomRecord {
     /// Create new room record.
     pub fn create(
         database: Database,
-        info: &RoomInfo
+        info: &PublicRoomInfo
     ) -> rusqlite::Result<Self> {
         let lock = database.lock();
 
         let mut query = lock.prepare_cached("
-            INSERT INTO rooms (
+            INSERT INTO public_rooms (
                 space_id,
                 name,
                 author_id,
@@ -85,7 +85,7 @@ impl RoomRecord {
         id: i64
     ) -> rusqlite::Result<Self> {
         database.lock()
-            .prepare_cached("SELECT 1 FROM rooms WHERE id = ?1")?
+            .prepare_cached("SELECT 1 FROM public_rooms WHERE id = ?1")?
             .query_row([id], |_| Ok(()))?;
 
         Ok(Self(database, id))
@@ -101,7 +101,7 @@ impl RoomRecord {
         let lock = database.lock();
 
         let mut query = lock.prepare_cached("
-            SELECT id FROM rooms WHERE space_id = ?1 AND name = ?2
+            SELECT id FROM public_rooms WHERE space_id = ?1 AND name = ?2
         ")?;
 
         let id = query.query_row((
@@ -132,28 +132,28 @@ impl RoomRecord {
     /// Internal ID of the space this room belongs to.
     pub fn space_id(&self) -> rusqlite::Result<i64> {
         self.0.lock()
-            .prepare_cached("SELECT space_id FROM rooms WHERE id = ?1")?
+            .prepare_cached("SELECT space_id FROM public_rooms WHERE id = ?1")?
             .query_row([self.1], |row| row.get("space_id"))
     }
 
     /// Name of the room.
     pub fn name(&self) -> rusqlite::Result<String> {
         self.0.lock()
-            .prepare_cached("SELECT name FROM rooms WHERE id = ?1")?
+            .prepare_cached("SELECT name FROM public_rooms WHERE id = ?1")?
             .query_row([self.1], |row| row.get("name"))
     }
 
     /// Internal ID of the user who created the room.
     pub fn author_id(&self) -> rusqlite::Result<i64> {
         self.0.lock()
-            .prepare_cached("SELECT author_id FROM rooms WHERE id = ?1")?
+            .prepare_cached("SELECT author_id FROM public_rooms WHERE id = ?1")?
             .query_row([self.1], |row| row.get("author_id"))
     }
 
     /// Hash of the block where this record is stored.
     pub fn block_hash(&self) -> rusqlite::Result<Hash> {
         self.0.lock()
-            .prepare_cached("SELECT block_hash FROM rooms WHERE id = ?1")?
+            .prepare_cached("SELECT block_hash FROM public_rooms WHERE id = ?1")?
             .query_row([self.1], |row| row.get::<_, [u8; 32]>("block_hash"))
             .map(Hash::from)
     }
@@ -161,7 +161,7 @@ impl RoomRecord {
     /// Hash of the transaction where this record is stored.
     pub fn transaction_hash(&self) -> rusqlite::Result<Hash> {
         self.0.lock()
-            .prepare_cached("SELECT transaction_hash FROM rooms WHERE id = ?1")?
+            .prepare_cached("SELECT transaction_hash FROM public_rooms WHERE id = ?1")?
             .query_row([self.1], |row| row.get::<_, [u8; 32]>("transaction_hash"))
             .map(Hash::from)
     }
@@ -172,7 +172,7 @@ impl RoomRecord {
         name: impl AsRef<str>
     ) -> rusqlite::Result<&mut Self> {
         self.0.lock()
-            .prepare_cached("UPDATE rooms SET name = ?2 WHERE id = ?1")?
+            .prepare_cached("UPDATE public_rooms SET name = ?2 WHERE id = ?1")?
             .execute((self.1, name.as_ref()))?;
 
         Ok(self)

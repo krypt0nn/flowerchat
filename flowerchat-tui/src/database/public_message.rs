@@ -21,7 +21,7 @@ use libflowerpot::crypto::*;
 use super::Database;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct MessageInfo {
+pub struct PublicRoomMessageInfo {
     /// Internal ID of the room.
     pub room_id: i64,
 
@@ -34,16 +34,6 @@ pub struct MessageInfo {
     /// Hash of the transaction where this record is stored.
     pub transaction_hash: Hash,
 
-    /// Hash of the block where the previous message's record is stored.
-    ///
-    /// This information is needed to reconstruct proper messages order.
-    pub reply_block_hash: Hash,
-
-    /// Hash of the transaction where the previous message's record is stored.
-    ///
-    /// This information is needed to reconstruct proper messages order.
-    pub reply_transaction_hash: Hash,
-
     /// Timestamp of when the message was approved by a validator.
     pub timestamp: time::UtcDateTime,
 
@@ -52,27 +42,25 @@ pub struct MessageInfo {
 }
 
 #[derive(Debug, Clone)]
-pub struct MessageRecord(Database, i64);
+pub struct PublicRoomMessageRecord(Database, i64);
 
-impl MessageRecord {
+impl PublicRoomMessageRecord {
     /// Create new message record.
     pub fn create(
         database: Database,
-        info: &MessageInfo
+        info: &PublicRoomMessageInfo
     ) -> rusqlite::Result<Self> {
         let lock = database.lock();
 
         let mut query = lock.prepare_cached("
-            INSERT INTO messages (
+            INSERT INTO public_messages (
                 room_id,
                 user_id,
                 block_hash,
                 transaction_hash,
-                reply_block_hash,
-                reply_transaction_hash,
                 timestamp,
                 content
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
         ")?;
 
         let id = query.insert((
@@ -80,8 +68,6 @@ impl MessageRecord {
             info.user_id,
             info.block_hash.0,
             info.transaction_hash.0,
-            info.reply_block_hash.0,
-            info.reply_transaction_hash.0,
             info.timestamp.unix_timestamp(),
             info.content.as_str()
         ))?;
@@ -104,7 +90,7 @@ impl MessageRecord {
         id: i64
     ) -> rusqlite::Result<Self> {
         database.lock()
-            .prepare_cached("SELECT 1 FROM messages WHERE id = ?1")?
+            .prepare_cached("SELECT 1 FROM public_messages WHERE id = ?1")?
             .query_row([id], |_| Ok(()))?;
 
         Ok(Self(database, id))
@@ -124,21 +110,21 @@ impl MessageRecord {
     /// Internal ID of the room.
     pub fn room_id(&self) -> rusqlite::Result<i64> {
         self.0.lock()
-            .prepare_cached("SELECT room_id FROM chats WHERE id = ?1")?
+            .prepare_cached("SELECT room_id FROM public_messages WHERE id = ?1")?
             .query_row([self.1], |row| row.get("room_id"))
     }
 
     /// Internal ID of the message sender.
     pub fn user_id(&self) -> rusqlite::Result<i64> {
         self.0.lock()
-            .prepare_cached("SELECT user_id FROM chats WHERE id = ?1")?
+            .prepare_cached("SELECT user_id FROM public_messages WHERE id = ?1")?
             .query_row([self.1], |row| row.get("user_id"))
     }
 
     /// Hash of the block where this record is stored.
     pub fn block_hash(&self) -> rusqlite::Result<Hash> {
         self.0.lock()
-            .prepare_cached("SELECT block_hash FROM chats WHERE id = ?1")?
+            .prepare_cached("SELECT block_hash FROM public_messages WHERE id = ?1")?
             .query_row([self.1], |row| row.get::<_, [u8; 32]>("block_hash"))
             .map(Hash::from)
     }
@@ -146,28 +132,8 @@ impl MessageRecord {
     /// Hash of the transaction where this record is stored.
     pub fn transaction_hash(&self) -> rusqlite::Result<Hash> {
         self.0.lock()
-            .prepare_cached("SELECT transaction_hash FROM chats WHERE id = ?1")?
+            .prepare_cached("SELECT transaction_hash FROM public_messages WHERE id = ?1")?
             .query_row([self.1], |row| row.get::<_, [u8; 32]>("transaction_hash"))
-            .map(Hash::from)
-    }
-
-    /// Hash of the block where the previous message's record is stored.
-    ///
-    /// This information is needed to reconstruct proper messages order.
-    pub fn reply_block_hash(&self) -> rusqlite::Result<Hash> {
-        self.0.lock()
-            .prepare_cached("SELECT reply_block_hash FROM chats WHERE id = ?1")?
-            .query_row([self.1], |row| row.get::<_, [u8; 32]>("reply_block_hash"))
-            .map(Hash::from)
-    }
-
-    /// Hash of the transaction where the previous message's record is stored.
-    ///
-    /// This information is needed to reconstruct proper messages order.
-    pub fn reply_transaction_hash(&self) -> rusqlite::Result<Hash> {
-        self.0.lock()
-            .prepare_cached("SELECT reply_transaction_hash FROM chats WHERE id = ?1")?
-            .query_row([self.1], |row| row.get::<_, [u8; 32]>("reply_transaction_hash"))
             .map(Hash::from)
     }
 }

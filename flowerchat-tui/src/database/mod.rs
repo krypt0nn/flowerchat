@@ -28,9 +28,8 @@ use libflowerpot::crypto::Hash;
 pub mod space;
 pub mod shard;
 pub mod user;
-pub mod mint;
-pub mod room;
-pub mod message;
+pub mod public_room;
+pub mod public_message;
 
 #[derive(Debug, Clone)]
 pub struct Database(Arc<Mutex<Connection>>);
@@ -79,10 +78,8 @@ impl Database {
                 space_id   INTEGER NOT NULL,
                 public_key BLOB    NOT NULL,
                 nickname   TEXT             UNIQUE DEFAULT NULL,
-                balance    INTEGER                 DEFAULT 0,
 
                 UNIQUE (space_id, public_key),
-                CHECK (balance >= 0),
 
                 PRIMARY KEY (id),
                 FOREIGN KEY (space_id) REFERENCES spaces (id) ON DELETE CASCADE
@@ -95,19 +92,7 @@ impl Database {
                 nickname
             );
 
-            CREATE TABLE IF NOT EXISTS mints (
-                user_id  INTEGER NOT NULL,
-                nonce    BLOB    NOT NULL,
-
-                block_hash       BLOB NOT NULL,
-                transaction_hash BLOB NOT NULL,
-
-                UNIQUE (user_id, nonce),
-
-                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-            );
-
-            CREATE TABLE IF NOT EXISTS rooms (
+            CREATE TABLE IF NOT EXISTS public_rooms (
                 id       INTEGER NOT NULL UNIQUE,
                 space_id INTEGER NOT NULL,
                 name     TEXT    NOT NULL,
@@ -123,13 +108,13 @@ impl Database {
                 FOREIGN KEY (author_id) REFERENCES users  (id) ON DELETE CASCADE
             );
 
-            CREATE INDEX IF NOT EXISTS rooms_idx ON rooms (
+            CREATE INDEX IF NOT EXISTS public_rooms_idx ON public_rooms (
                 id,
                 space_id,
                 name
             );
 
-            CREATE TABLE IF NOT EXISTS messages (
+            CREATE TABLE IF NOT EXISTS public_messages (
                 id      INTEGER NOT NULL UNIQUE,
                 room_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
@@ -137,17 +122,15 @@ impl Database {
                 block_hash       BLOB NOT NULL,
                 transaction_hash BLOB NOT NULL,
 
-                reply_block_hash       BLOB    NOT NULL,
-                reply_transaction_hash BLOB    NOT NULL,
-                timestamp              INTEGER NOT NULL,
-                content                TEXT    NOT NULL,
+                timestamp INTEGER NOT NULL,
+                content   TEXT    NOT NULL,
 
                 PRIMARY KEY (id),
-                FOREIGN KEY (room_id)  REFERENCES rooms  (id) ON DELETE CASCADE,
-                FOREIGN KEY (user_id)  REFERENCES users  (id) ON DELETE CASCADE
+                FOREIGN KEY (room_id)  REFERENCES public_rooms (id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id)  REFERENCES users        (id) ON DELETE CASCADE
             );
 
-            CREATE INDEX IF NOT EXISTS messages_idx ON messages (
+            CREATE INDEX IF NOT EXISTS public_messages_idx ON public_messages (
                 id,
                 room_id,
                 user_id,

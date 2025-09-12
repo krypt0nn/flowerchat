@@ -29,10 +29,7 @@ pub struct UserInfo {
     pub public_key: PublicKey,
 
     /// Nickname of the user if it's available.
-    pub nickname: Option<String>,
-
-    /// Balance of the user.
-    pub balance: u64
+    pub nickname: Option<String>
 }
 
 #[derive(Debug, Clone)]
@@ -50,16 +47,14 @@ impl UserRecord {
             INSERT INTO users (
                 space_id,
                 public_key,
-                nickname,
-                balance
-            ) VALUES (?1, ?2, ?3, ?4)
+                nickname
+            ) VALUES (?1, ?2, ?3)
         ")?;
 
         let id = query.insert((
             info.space_id,
             info.public_key.to_bytes(),
-            info.nickname.as_ref(),
-            info.balance
+            info.nickname.as_ref()
         ))?;
 
         drop(query);
@@ -150,13 +145,6 @@ impl UserRecord {
             .query_row([self.1], |row| row.get("nickname"))
     }
 
-    /// Balance of the user.
-    pub fn balance(&self) -> rusqlite::Result<u64> {
-        self.0.lock()
-            .prepare_cached("SELECT balance FROM users WHERE id = ?1")?
-            .query_row([self.1], |row| row.get("balance"))
-    }
-
     /// Update nickname of the current space.
     pub fn update_nickname(
         &mut self,
@@ -165,18 +153,6 @@ impl UserRecord {
         self.0.lock()
             .prepare_cached("UPDATE users SET nickname = ?2 WHERE id = ?1")?
             .execute((self.1, nickname.as_ref()))?;
-
-        Ok(self)
-    }
-
-    /// Update balance of the current space.
-    pub fn update_balance(
-        &mut self,
-        balance: u64
-    ) -> rusqlite::Result<&mut Self> {
-        self.0.lock()
-            .prepare_cached("UPDATE users SET balance = ?2 WHERE id = ?1")?
-            .execute((self.1, balance))?;
 
         Ok(self)
     }
