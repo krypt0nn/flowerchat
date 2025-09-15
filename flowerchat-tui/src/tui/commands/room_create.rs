@@ -101,7 +101,7 @@ pub async fn run(
             output(Action::TerminalSetCurrentLine(String::new()));
 
             if let Err(err) = result {
-                output(Action::TerminalSetCurrentLine(format!(
+                output(Action::TerminalPush(format!(
                     "Announcing transaction to {} active shards... Error",
                     shards.len()
                 )));
@@ -110,7 +110,7 @@ pub async fn run(
             }
 
             else {
-                output(Action::TerminalSetCurrentLine(format!(
+                output(Action::TerminalPush(format!(
                     "Announcing transaction to {} active shards... Done",
                     shards.len()
                 )));

@@ -22,6 +22,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::net::{SocketAddr, Ipv6Addr};
+use std::fs::File;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
@@ -56,6 +57,10 @@ use database::space::{SpaceRecord, SpaceInfo};
 #[derive(Parser)]
 #[command(version)]
 struct Cli {
+    /// Save debug logs to the provided file path.
+    #[arg(long)]
+    debug: Option<PathBuf>,
+
     #[command(subcommand)]
     command: Option<Command>
 }
@@ -489,7 +494,16 @@ async fn main() -> anyhow::Result<()> {
         consts::DATABASE_PATH.as_path()
     ).context("failed to open flowerchat database")?;
 
-    match Cli::parse().command {
+    let cli = Cli::parse();
+
+    if let Some(debug) = cli.debug {
+        tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer(File::create(debug)?)
+            .init();
+    }
+
+    match cli.command {
         Some(command) => command.run(database).await,
         None => {
             let mut terminal = ratatui::init();
