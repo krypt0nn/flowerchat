@@ -487,7 +487,7 @@ async fn main() -> anyhow::Result<()> {
         None => {
             let mut terminal = ratatui::init();
 
-            let result = tui::render(
+            let result = tui::run_app(
                 Handle::current(),
                 database,
                 &mut terminal

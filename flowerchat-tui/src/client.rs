@@ -17,6 +17,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use anyhow::Context;
+use time::UtcDateTime;
 
 use libflowerpot::crypto::*;
 use libflowerpot::block::BlockContent;
@@ -86,11 +87,44 @@ pub async fn read_events<E>(
     }
 }
 
+pub enum Update {
+    /// Iterating over the network blocks to verify the blockchain integrity
+    /// until we find not yet processed blocks.
+    Verification {
+        /// Hash of the currently processing block.
+        block_hash: Hash,
+
+        /// Hash of the currently processing transaction within this block.
+        transaction_hash: Hash,
+
+        /// Timestamp of when the block was made.
+        block_timestamp: UtcDateTime,
+
+        /// Estimated blocks verification progress. It's calculated as
+        /// `block_timestamp / curr_timestamp` where `curr_timestamp` is when
+        /// we started the verification progress.
+        estimated_progress: f32
+    },
+
+    /// New event was processed.
+    NewEvent {
+        /// Hash of the currently processing block.
+        block_hash: Hash,
+
+        /// Hash of the currently processing transaction within this block.
+        transaction_hash: Hash,
+
+        /// Timestamp of when the block was made.
+        block_timestamp: UtcDateTime
+    }
+}
+
 /// Read blocks using the provided blockchain viewer, decode transactions into
 /// flowerchat events and process them using the database entry.
 pub async fn run(
     database: Database,
-    viewer: Viewer
+    viewer: Viewer,
+    mut updater: impl FnMut(Update)
 ) -> anyhow::Result<()> {
     let space = SpaceRecord::find(database.clone(), viewer.root_block())
         .context("failed to find space in the database with the viewer's root block")?;
@@ -99,35 +133,46 @@ pub async fn run(
         anyhow::bail!("space with requested hash is not stored in the database");
     };
 
-    let result = read_events(viewer, |event| -> anyhow::Result<()> {
+    let curr_timestamp = UtcDateTime::now().unix_timestamp() as f32;
+
+    let result = read_events(viewer, move |event| -> anyhow::Result<()> {
         let is_handled = database.is_handled(
             space.id(),
             event.block_hash,
             event.transaction_hash
         ).context("failed to verify if transaction is handled")?;
 
-        fn find_or_create_user(
-            database: Database,
-            space_id: i64,
-            public_key: PublicKey
-        ) -> anyhow::Result<UserRecord> {
-            let user = UserRecord::find(
-                database.clone(),
-                space_id,
-                &public_key
-            ).context("failed to find user")?;
-
-            match user {
-                Some(user) => Ok(user),
-                None => UserRecord::create(database, &UserInfo {
-                    space_id,
-                    public_key,
-                    nickname: None
-                }).context("failed to create user")
-            }
+        if is_handled {
+            updater(Update::Verification {
+                block_hash: event.block_hash,
+                transaction_hash: event.transaction_hash,
+                block_timestamp: event.block_timestamp,
+                estimated_progress: event.block_timestamp.unix_timestamp() as f32 / curr_timestamp
+            });
         }
 
-        if !is_handled {
+        else {
+            fn find_or_create_user(
+                database: Database,
+                space_id: i64,
+                public_key: PublicKey
+            ) -> anyhow::Result<UserRecord> {
+                let user = UserRecord::find(
+                    database.clone(),
+                    space_id,
+                    &public_key
+                ).context("failed to find user")?;
+
+                match user {
+                    Some(user) => Ok(user),
+                    None => UserRecord::create(database, &UserInfo {
+                        space_id,
+                        public_key,
+                        nickname: None
+                    }).context("failed to create user")
+                }
+            }
+
             match event.event {
                 Events::CreatePublicRoom(info) => {
                     let author = find_or_create_user(
@@ -179,6 +224,12 @@ pub async fn run(
                 event.block_hash,
                 event.transaction_hash
             ).context("failed to mark transaction as handled")?;
+
+            updater(Update::NewEvent {
+                block_hash: event.block_hash,
+                transaction_hash: event.transaction_hash,
+                block_timestamp: event.block_timestamp
+            });
         }
 
         Ok(())
