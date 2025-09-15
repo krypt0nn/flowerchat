@@ -16,112 +16,57 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use tokio::sync::oneshot::channel as oneshot_channel;
+use crate::tui::app::{AppState, Action};
+use crate::utils::make_table;
 
-use crate::tui::app::Action;
+pub async fn run(
+    state: AppState,
+    output: impl Fn(Action)
+) {
+    let mut spaces_data = Vec::new();
 
-pub async fn run(output: impl Fn(Action)) {
-    let (send, recv) = oneshot_channel();
+    for space in state.database.spaces() {
+        let title = match space.title() {
+            Ok(title) if title.is_empty() => String::from("<unknown>"),
+            Ok(title) => title,
+            Err(err) => {
+                output(Action::TerminalPush(format!("failed to get space title: {err}")));
 
-    output(Action::RequestSpaces(send));
-
-    match recv.await {
-        Ok(spaces) => {
-            let mut spaces_data = Vec::new();
-
-            let mut max_id_len = 1;
-            let mut max_title_len = 1;
-            let mut max_root_block_len = 32;
-            let mut max_public_key_len = 33;
-
-            for space in spaces {
-                let title = match space.title() {
-                    Ok(title) if title.is_empty() => String::from("<unknown>"),
-                    Ok(title) => title,
-                    Err(err) => {
-                        output(Action::TerminalPush(format!("failed to get space title: {err}")));
-
-                        return;
-                    }
-                };
-
-                let root_block = match space.root_block() {
-                    Ok(root_block) => root_block,
-                    Err(err) => {
-                        output(Action::TerminalPush(format!("failed to get space root block: {err}")));
-
-                        return;
-                    }
-                };
-
-                let author = match space.author() {
-                    Ok(author) => author,
-                    Err(err) => {
-                        output(Action::TerminalPush(format!("failed to get space author: {err}")));
-
-                        return;
-                    }
-                };
-
-                let space_id = space.id().to_string();
-                let root_block = root_block.to_base64();
-                let public_key = author.to_base64();
-
-                max_id_len = max_id_len.max(space_id.len());
-                max_title_len = max_title_len.max(title.len());
-                max_root_block_len = max_root_block_len.max(root_block.len());
-                max_public_key_len = max_public_key_len.max(public_key.len());
-
-                spaces_data.push((space_id, title, root_block, public_key));
-            }
-
-            if spaces_data.is_empty() {
                 return;
             }
+        };
 
-            output(Action::TerminalPush(format!(
-                "+-{}-+-{}-+-{}-+-{}-+",
-                "-".repeat(max_id_len),
-                "-".repeat(max_title_len),
-                "-".repeat(max_root_block_len),
-                "-".repeat(max_public_key_len)
-            )));
+        let root_block = match space.root_block() {
+            Ok(root_block) => root_block,
+            Err(err) => {
+                output(Action::TerminalPush(format!("failed to get space root block: {err}")));
 
-            output(Action::TerminalPush(format!(
-                "| #{} | Title{} | Root block{} | Public key{} |",
-                " ".repeat(max_id_len - 1),
-                " ".repeat(max_title_len - 5),
-                " ".repeat(max_root_block_len - 10),
-                " ".repeat(max_public_key_len - 10)
-            )));
-
-            output(Action::TerminalPush(format!(
-                "+-{}-+-{}-+-{}-+-{}-+",
-                "-".repeat(max_id_len),
-                "-".repeat(max_title_len),
-                "-".repeat(max_root_block_len),
-                "-".repeat(max_public_key_len)
-            )));
-
-            for (space_id, title, root_block, public_key) in spaces_data {
-                output(Action::TerminalPush(format!(
-                    "| {} | {} | {} | {} |",
-                    space_id,
-                    title,
-                    root_block,
-                    public_key
-                )));
+                return;
             }
+        };
 
-            output(Action::TerminalPush(format!(
-                "+-{}-+-{}-+-{}-+-{}-+",
-                "-".repeat(max_id_len),
-                "-".repeat(max_title_len),
-                "-".repeat(max_root_block_len),
-                "-".repeat(max_public_key_len)
-            )));
-        }
+        let author = match space.author() {
+            Ok(author) => author,
+            Err(err) => {
+                output(Action::TerminalPush(format!("failed to get space author: {err}")));
 
-        Err(err) => output(Action::TerminalPush(format!("failed to get spaces: {err}")))
+                return;
+            }
+        };
+
+        let space_id = space.id().to_string();
+        let root_block = root_block.to_base64();
+        let public_key = author.to_base64();
+
+        spaces_data.push([space_id, title, root_block, public_key]);
     }
+
+    if spaces_data.is_empty() {
+        return;
+    }
+
+    output(Action::TerminalPush(make_table(
+        ["#", "Title", "Root block", "Public key"],
+        spaces_data
+    )));
 }
