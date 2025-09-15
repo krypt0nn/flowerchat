@@ -22,6 +22,7 @@ pub struct TerminalWidget {
     pub ongoing: TerminalWidgetCurrentLine,
     pub prefix: Option<String>,
     pub offset: Option<usize>,
+    pub width: u16,
     pub height: u16
 }
 

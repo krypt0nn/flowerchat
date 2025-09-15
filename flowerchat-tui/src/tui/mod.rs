@@ -156,6 +156,7 @@ pub async fn run_app(
 
             let mut terminal_widget = state.terminal_widget.write();
 
+            terminal_widget.width = terminal_area.width;
             terminal_widget.height = terminal_area.height;
 
             let stick_offset = terminal_widget.stick_offset(terminal_area.height as usize);

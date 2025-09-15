@@ -106,6 +106,9 @@ pub enum Update {
         estimated_progress: f32
     },
 
+    /// Network blocks viewer reached the end of the known blockchain.
+    VerificationDone,
+
     /// New event was processed.
     NewEvent {
         /// Hash of the currently processing block.
@@ -135,6 +138,14 @@ pub async fn run(
 
     let curr_timestamp = UtcDateTime::now().unix_timestamp() as f32;
 
+    let mut verification_done = false;
+
+    if viewer.blocks_pool().is_empty() {
+        updater(Update::VerificationDone);
+
+        verification_done = true;
+    }
+
     let result = read_events(viewer, move |event| -> anyhow::Result<()> {
         let is_handled = database.is_handled(
             space.id(),
@@ -142,16 +153,13 @@ pub async fn run(
             event.transaction_hash
         ).context("failed to verify if transaction is handled")?;
 
-        if is_handled {
-            updater(Update::Verification {
-                block_hash: event.block_hash,
-                transaction_hash: event.transaction_hash,
-                block_timestamp: event.block_timestamp,
-                estimated_progress: event.block_timestamp.unix_timestamp() as f32 / curr_timestamp
-            });
-        }
+        if !is_handled {
+            if !verification_done {
+                updater(Update::VerificationDone);
 
-        else {
+                verification_done = true;
+            }
+
             fn find_or_create_user(
                 database: Database,
                 space_id: i64,
@@ -229,6 +237,15 @@ pub async fn run(
                 block_hash: event.block_hash,
                 transaction_hash: event.transaction_hash,
                 block_timestamp: event.block_timestamp
+            });
+        }
+
+        else if !verification_done {
+            updater(Update::Verification {
+                block_hash: event.block_hash,
+                transaction_hash: event.transaction_hash,
+                block_timestamp: event.block_timestamp,
+                estimated_progress: event.block_timestamp.unix_timestamp() as f32 / curr_timestamp
             });
         }
 

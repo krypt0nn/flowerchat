@@ -1178,7 +1178,7 @@ checksum = "6a82ae493e598baaea5209805c49bbf2ea7de956d50d7da0da1164f9c6d28543"
 [[package]]
 name = "libflowerpot"
 version = "0.1.0"
-source = "git+https://github.com/krypt0nn/libflowerpot#20364066cb6715958deae710b5c6df81cbdeb5bc"
+source = "git+https://github.com/krypt0nn/libflowerpot#c69824a29358c1552790395a4859f815127ef067"
 dependencies = [
  "axum",
  "base64",
