@@ -41,8 +41,8 @@ pub fn get_rng() -> ChaCha20Rng {
 }
 
 pub fn make_table<const N: usize>(
-    header: &[impl ToString; N],
-    rows: &[&[impl ToString; N]]
+    header: [impl ToString; N],
+    rows: impl IntoIterator<Item = [impl ToString; N]>
 ) -> String {
     fn make_decorator<const N: usize>(widths: [usize; N]) -> String {
         let mut line = String::new();
@@ -74,9 +74,9 @@ pub fn make_table<const N: usize>(
         column_widths[i] = column_widths[i].max(header[i].len());
     }
 
-    let mut normal_rows = Vec::with_capacity(rows.len());
+    let mut normal_rows = Vec::new();
 
-    for (i, row) in rows.iter().enumerate() {
+    for (i, row) in rows.into_iter().enumerate() {
         normal_rows.push(core::array::from_fn::<String, N, _>(
             |i| row[i].to_string()
         ));

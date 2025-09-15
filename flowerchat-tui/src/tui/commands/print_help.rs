@@ -20,10 +20,10 @@ use crate::tui::app::Action;
 use crate::utils::make_table;
 
 pub fn run(output: impl Fn(Action)) {
-    let table = make_table(&["Command", "Description"], &[
-        &["help", "list available commands"],
-        &["spaces", "list available spaces"],
-        &["connect <space> <identity>", "connect to space"]
+    let table = make_table(["Command", "Description"], [
+        ["help", "list available commands"],
+        ["spaces", "list available spaces"],
+        ["connect <space> <identity>", "connect to space"]
     ]);
 
     output(Action::TerminalPush(table));
