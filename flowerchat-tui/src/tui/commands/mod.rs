@@ -19,20 +19,44 @@
 mod print_help;
 mod print_spaces;
 mod connect_space;
+mod room_list;
 
-use crate::tui::app::Action;
+use crate::tui::app::{AppState, Action};
 
 pub async fn run_command(
     command: impl IntoIterator<Item = String>,
+    state: AppState,
     output: impl Fn(Action)
 ) {
+    let is_connected = state.connection.read().is_some();
+
     let mut command = command.into_iter();
 
     match command.next().as_deref() {
-        Some("help") => print_help::run(output),
-        Some("spaces") => print_spaces::run(output).await,
+        Some("help") => print_help::run(is_connected, output),
 
-        Some("connect") => {
+        // Connected
+
+        Some("room") => match command.next().as_deref() {
+            Some("list") => room_list::run(state, output),
+
+            Some("create") => {
+
+            }
+
+            Some("open") => {
+
+            }
+
+            Some(_) => output(Action::TerminalPush(String::from("unknown subcommand"))),
+            _ => output(Action::TerminalPush(String::from("not subcommand provided")))
+        }
+
+        // Not connected
+
+        Some("spaces") if !is_connected => print_spaces::run(state, output).await,
+
+        Some("connect") if !is_connected => {
             let Some(space) = command.next() else {
                 output(Action::TerminalPush(String::from("space id or root block hash is not specified")));
 
@@ -48,6 +72,6 @@ pub async fn run_command(
             connect_space::run(space, identity, output).await
         }
 
-        Some(_) | None => print_help::run(output)
+        Some(_) | None => print_help::run(is_connected, output)
     }
 }

@@ -41,9 +41,6 @@ pub enum Action {
     /// Set current output line in the terminal widget.
     TerminalSetCurrentLine(String),
 
-    /// Request list of available spaces.
-    RequestSpaces(Sender<Vec<SpaceRecord>>),
-
     /// Request space record from provided input query.
     RequestSpaceRecord(String, Sender<anyhow::Result<SpaceRecord>>),
 
@@ -98,13 +95,6 @@ pub fn run_actions_handler(
                         state.terminal_widget.write().ongoing = TerminalWidgetCurrentLine::Output(text);
 
                         let _ = updates_sender.send(());
-                    }
-
-                    Action::RequestSpaces(sender) => {
-                        let spaces = state.database.spaces()
-                            .collect::<Vec<SpaceRecord>>();
-
-                        let _ = sender.send(spaces);
                     }
 
                     Action::RequestSpaceRecord(space, sender) => {
@@ -170,9 +160,9 @@ pub fn run_actions_handler(
                                     Update::VerificationDone => sender = None,
 
                                     Update::NewEvent {
-                                        block_hash,
-                                        transaction_hash,
-                                        block_timestamp
+                                        block_hash: _,
+                                        transaction_hash: _,
+                                        block_timestamp: _
                                     } => {
                                         sender = None;
                                     }

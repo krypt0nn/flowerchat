@@ -19,12 +19,21 @@
 use crate::tui::app::Action;
 use crate::utils::make_table;
 
-pub fn run(output: impl Fn(Action)) {
-    let table = make_table(["Command", "Description"], [
-        ["help", "list available commands"],
-        ["spaces", "list available spaces"],
-        ["connect <space> <identity>", "connect to space"]
-    ]);
+pub fn run(is_connected: bool, output: impl Fn(Action)) {
+    let table = if is_connected {
+        make_table(["Command", "Description"], [
+            ["help", "list available commands"],
+            ["room list", "list all existing rooms"],
+            ["room create <name>", "create new room"],
+            ["room open <name>", "open existing room"]
+        ])
+    } else {
+        make_table(["Command", "Description"], [
+            ["help", "list available commands"],
+            ["spaces", "list available spaces"],
+            ["connect <space> <identity>", "connect to space"]
+        ])
+    };
 
     output(Action::TerminalPush(table));
 }

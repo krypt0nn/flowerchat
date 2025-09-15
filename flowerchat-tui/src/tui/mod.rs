@@ -256,9 +256,13 @@ pub async fn run_app(
 
                                 let actions_sender = actions_sender.clone();
 
-                                let task = runtime.spawn(commands::run_command(command, move |action| {
-                                    let _ = actions_sender.send(action);
-                                }));
+                                let task = runtime.spawn(commands::run_command(
+                                    command,
+                                    state.clone(),
+                                    move |action| {
+                                        let _ = actions_sender.send(action);
+                                    }
+                                ));
 
                                 running_command = Some(task);
 
