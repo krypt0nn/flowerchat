@@ -20,6 +20,7 @@ mod print_help;
 mod print_spaces;
 mod connect_space;
 mod room_list;
+mod room_create;
 
 use crate::tui::app::{AppState, Action};
 
@@ -41,7 +42,15 @@ pub async fn run_command(
             Some("list") => room_list::run(state, output),
 
             Some("create") => {
+                let Some(name) = command.next() else {
+                    output(Action::TerminalPush(String::from(
+                        "public room name is not provided"
+                    )));
 
+                    return;
+                };
+
+                room_create::run(state, name, output).await;
             }
 
             Some("open") => {
@@ -58,13 +67,17 @@ pub async fn run_command(
 
         Some("connect") if !is_connected => {
             let Some(space) = command.next() else {
-                output(Action::TerminalPush(String::from("space id or root block hash is not specified")));
+                output(Action::TerminalPush(String::from(
+                    "space id or root block hash is not provided"
+                )));
 
                 return;
             };
 
             let Some(identity) = command.next() else {
-                output(Action::TerminalPush(String::from("identity (secret key) is not specified")));
+                output(Action::TerminalPush(String::from(
+                    "identity (secret key) is not provided"
+                )));
 
                 return;
             };

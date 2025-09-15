@@ -119,6 +119,11 @@ impl UserRecord {
         self.1
     }
 
+    #[inline]
+    pub fn into_inner(self) -> (Database, i64) {
+        (self.0, self.1)
+    }
+
     /// Internal ID of the space this user belongs to.
     pub fn space_id(&self) -> rusqlite::Result<i64> {
         self.0.lock()

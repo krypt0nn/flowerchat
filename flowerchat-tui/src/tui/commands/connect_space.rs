@@ -76,7 +76,13 @@ pub async fn run(
 
             output(Action::TerminalPush(String::from("opening blockchain viewer...")));
 
-            let viewer = match Viewer::open(client, pool.active(), Some(root_block)).await {
+            let viewer = Viewer::open(
+                client.clone(),
+                pool.active(),
+                Some(root_block)
+            ).await;
+
+            let viewer = match viewer {
                 Ok(Some(viewer)) => viewer,
 
                 Ok(None) => {
@@ -93,7 +99,14 @@ pub async fn run(
             };
 
             output(Action::TerminalPush(String::from("connecting to the space...")));
-            output(Action::Connect(space, identity, viewer));
+
+            output(Action::Connect {
+                space,
+                secret_key: identity,
+                client,
+                shards: pool,
+                viewer
+            });
         }
 
         Ok(Err(err)) => output(Action::TerminalPush(format!("failed to obtain space record: {err}"))),

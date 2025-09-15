@@ -114,6 +114,11 @@ impl SpaceRecord {
         self.1
     }
 
+    #[inline]
+    pub fn into_inner(self) -> (Database, i64) {
+        (self.0, self.1)
+    }
+
     /// Title of the space.
     pub fn title(&self) -> rusqlite::Result<String> {
         self.0.lock()

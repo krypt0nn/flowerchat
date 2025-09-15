@@ -107,6 +107,11 @@ impl PublicRoomMessageRecord {
         self.1
     }
 
+    #[inline]
+    pub fn into_inner(self) -> (Database, i64) {
+        (self.0, self.1)
+    }
+
     /// Internal ID of the room.
     pub fn room_id(&self) -> rusqlite::Result<i64> {
         self.0.lock()

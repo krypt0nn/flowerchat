@@ -25,6 +25,8 @@ use tokio::sync::mpsc::{UnboundedSender, UnboundedReceiver, unbounded_channel};
 use tokio::sync::oneshot::Sender;
 
 use libflowerpot::crypto::*;
+use libflowerpot::client::Client;
+use libflowerpot::pool::ShardsPool;
 use libflowerpot::viewer::Viewer;
 
 use crate::database::Database;
@@ -32,6 +34,8 @@ use crate::database::space::SpaceRecord;
 use crate::client::Update;
 
 use crate::tui::terminal_widget::{TerminalWidget, TerminalWidgetCurrentLine};
+
+// TODO: get rid of actions in favor of shared state.
 
 #[allow(clippy::large_enum_variant)]
 pub enum Action {
@@ -45,12 +49,20 @@ pub enum Action {
     RequestSpaceRecord(String, Sender<anyhow::Result<SpaceRecord>>),
 
     /// Connect to the space.
-    Connect(SpaceRecord, SecretKey, Viewer)
+    Connect {
+        space: SpaceRecord,
+        secret_key: SecretKey,
+        client: Client,
+        shards: ShardsPool,
+        viewer: Viewer
+    }
 }
 
 #[derive(Debug)]
 pub struct SpaceConnection {
-    pub task: JoinHandle<anyhow::Result<()>>,
+    pub client: Client,
+    pub shards_pool: ShardsPool,
+    pub sync_task: JoinHandle<anyhow::Result<()>>,
     pub space: SpaceRecord,
     pub identity: SecretKey
 }
@@ -123,12 +135,18 @@ pub fn run_actions_handler(
                         let _ = sender.send(space);
                     }
 
-                    Action::Connect(space, identity, viewer) => {
+                    Action::Connect {
+                        space,
+                        secret_key,
+                        client,
+                        shards,
+                        viewer
+                    } => {
                         let mut lock = state.connection.write();
 
                         // Destroy previous connection.
                         if let Some(prev_connection) = &*lock {
-                            prev_connection.task.abort();
+                            prev_connection.sync_task.abort();
                         }
 
                         // Spawn new connection.
@@ -136,7 +154,7 @@ pub fn run_actions_handler(
 
                         let mut sender = Some(sender);
 
-                        let task = runtime.spawn(crate::client::run(
+                        let sync_task = runtime.spawn(crate::client::run(
                             state.database.clone(),
                             viewer,
                             move |update| {
@@ -171,12 +189,12 @@ pub fn run_actions_handler(
                         ));
 
                         lock.replace(SpaceConnection {
-                            task,
                             space,
-                            identity
+                            client,
+                            shards_pool: shards,
+                            sync_task,
+                            identity: secret_key
                         });
-
-                        // FIXME: when there's no blocks in space
 
                         let mut i = 0u64;
 
