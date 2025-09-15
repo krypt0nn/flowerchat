@@ -17,13 +17,14 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use crate::tui::app::Action;
+use crate::utils::make_table;
 
 pub fn run(output: impl Fn(Action)) {
-    output(Action::TerminalPush(String::from("+-----------------------------+-------------------------+")));
-    output(Action::TerminalPush(String::from("| Command                     | Description             |")));
-    output(Action::TerminalPush(String::from("+-----------------------------+-------------------------+")));
-    output(Action::TerminalPush(String::from("| help                        | list available commands |")));
-    output(Action::TerminalPush(String::from("| spaces                      | list available spaces   |")));
-    output(Action::TerminalPush(String::from("| connect <space> <identity>  | connect to space        |")));
-    output(Action::TerminalPush(String::from("+-----------------------------+-------------------------+")));
+    let table = make_table(&["Command", "Description"], &[
+        &["help", "list available commands"],
+        &["spaces", "list available spaces"],
+        &["connect <space> <identity>", "connect to space"]
+    ]);
+
+    output(Action::TerminalPush(table));
 }

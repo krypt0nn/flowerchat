@@ -40,6 +40,90 @@ pub fn get_rng() -> ChaCha20Rng {
     ChaCha20Rng::from_seed(seed)
 }
 
+pub fn make_table<const N: usize>(
+    header: &[impl ToString; N],
+    rows: &[&[impl ToString; N]]
+) -> String {
+    fn make_decorator<const N: usize>(widths: [usize; N]) -> String {
+        let mut line = String::new();
+
+        if N == 0 {
+            return line;
+        }
+
+        for width in widths {
+            line = format!("{line}+{}", "-".repeat(width + 2));
+        }
+
+        line.push('+');
+
+        line
+    }
+
+    if N == 0 {
+        return String::new();
+    }
+
+    let mut column_widths = [1; N];
+
+    let header = core::array::from_fn::<String, N, _>(
+        |i| header[i].to_string()
+    );
+
+    for i in 0..N {
+        column_widths[i] = column_widths[i].max(header[i].len());
+    }
+
+    let mut normal_rows = Vec::with_capacity(rows.len());
+
+    for (i, row) in rows.iter().enumerate() {
+        normal_rows.push(core::array::from_fn::<String, N, _>(
+            |i| row[i].to_string()
+        ));
+
+        #[allow(clippy::needless_range_loop)]
+        for j in 0..N {
+            column_widths[j] = column_widths[j].max(normal_rows[i][j].len());
+        }
+    }
+
+    let mut output = String::new();
+
+    let decorator = make_decorator(column_widths);
+
+    output.push_str(&decorator);
+    output.push_str("\n|");
+
+    for i in 0..N {
+        output = format!(
+            "{output} {} {}|",
+            header[i],
+            " ".repeat(column_widths[i] - header[i].len())
+        );
+    }
+
+    output.push('\n');
+    output.push_str(&decorator);
+    output.push('\n');
+
+    for row in normal_rows {
+        let mut line = String::from("|");
+
+        for i in 0..N {
+            line = format!(
+                "{line} {} {}|",
+                row[i],
+                " ".repeat(column_widths[i] - row[i].len())
+            );
+        }
+
+        output.push_str(&line);
+        output.push('\n');
+    }
+
+    format!("{output}{decorator}")
+}
+
 /// Cast bytes slice into a unicode emoji.
 pub fn bytes_to_emoji(bytes: impl AsRef<[u8]>) -> &'static str {
     // TODO: review these emojis
