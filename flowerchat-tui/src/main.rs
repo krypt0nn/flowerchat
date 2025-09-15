@@ -26,10 +26,10 @@ use std::net::{SocketAddr, Ipv6Addr};
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use tokio::runtime::Handle;
+use rand_chacha::rand_core::RngCore;
 
 use libflowerpot::crypto::*;
 use libflowerpot::block::{Block, BlockContent};
-use libflowerpot::transaction::Transaction;
 use libflowerpot::storage::Storage;
 use libflowerpot::storage::file_storage::FileStorage;
 use libflowerpot::client::Client;
@@ -232,10 +232,12 @@ impl SpaceCommand {
     pub async fn run(self, database: Database) -> anyhow::Result<()> {
         match self {
             Self::Create { path, secret_key, shards } => {
+                let mut rng = utils::get_rng();
+
                 let secret_key = match secret_key {
                     Some(secret_key) => SecretKey::from_base64(secret_key)
                         .ok_or_else(|| anyhow::anyhow!("invalid secret key format"))?,
-                    None => SecretKey::random(&mut utils::get_rng())
+                    None => SecretKey::random(&mut rng)
                 };
 
                 if !path.exists() {
@@ -247,7 +249,12 @@ impl SpaceCommand {
                 let storage = FileStorage::open(path)
                     .context("failed to create file storage for the blockchain")?;
 
-                let block = BlockContent::transactions::<Transaction>([]);
+                // Extra randomness for the root block of the space blockchain.
+                let mut block = [0; 32];
+
+                rng.fill_bytes(&mut block);
+
+                let block = BlockContent::data(block);
 
                 let block = Block::new(&secret_key, Hash::default(), block)
                     .context("failed to sign root block of the blockchain")?;
