@@ -16,11 +16,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+use std::iter::FusedIterator;
+
 use libflowerpot::crypto::*;
 
 use crate::utils::*;
 
 use super::Database;
+use super::public_room::PublicRoomRecord;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpaceInfo {
@@ -180,6 +183,16 @@ impl SpaceRecord {
         Ok(())
     }
 
+    /// Get iterator of all the public rooms existing in the current space.
+    #[inline]
+    pub fn public_rooms(&self) -> PublicRoomsIter {
+        PublicRoomsIter {
+            database: self.0.clone(),
+            space_id: self.1,
+            current: 0
+        }
+    }
+
     fn get_space_slice(&self) -> rusqlite::Result<[u8; 65]> {
         let root_block = self.root_block()?;
         let author = self.author()?.to_bytes();
@@ -202,3 +215,40 @@ impl SpaceRecord {
         Ok(bytes_to_shortname(self.get_space_slice()?))
     }
 }
+
+pub struct PublicRoomsIter {
+    database: Database,
+    space_id: i64,
+    current: i64
+}
+
+impl Iterator for PublicRoomsIter {
+    type Item = PublicRoomRecord;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let lock = self.database.lock();
+
+        let mut query = lock.prepare_cached("
+            SELECT id FROM public_rooms
+            WHERE space_id = ?1 AND id > ?2
+            ORDER BY id ASC
+            LIMIT 1
+        ").ok()?;
+
+        let id = query.query_row(
+            [self.space_id, self.current],
+            |row| row.get("id")
+        ).ok()?;
+
+        self.current = id;
+
+        let record = PublicRoomRecord::open_raw(
+            self.database.clone(),
+            id
+        );
+
+        Some(record)
+    }
+}
+
+impl FusedIterator for PublicRoomsIter {}
