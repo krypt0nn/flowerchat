@@ -32,7 +32,7 @@ use rand_chacha::rand_core::RngCore;
 use libflowerpot::crypto::*;
 use libflowerpot::block::{Block, BlockContent};
 use libflowerpot::storage::Storage;
-use libflowerpot::storage::file_storage::FileStorage;
+use libflowerpot::storage::sqlite_storage::SqliteStorage;
 use libflowerpot::client::Client;
 use libflowerpot::pool::ShardsPool;
 use libflowerpot::security::SecurityRules;
@@ -58,7 +58,7 @@ use database::space::{SpaceRecord, SpaceInfo};
 #[command(version)]
 struct Cli {
     /// Save debug logs to the provided file path.
-    #[arg(long)]
+    #[arg(long, alias = "log")]
     debug: Option<PathBuf>,
 
     #[command(subcommand)]
@@ -156,7 +156,8 @@ impl KeypairCommand {
 enum SpaceCommand {
     /// Create new space.
     Create {
-        /// Path to the folder where the space's blockchain should be stored.
+        /// Path to the database file where the space's blockchain
+        /// should be stored.
         #[arg(short, long)]
         path: PathBuf,
 
@@ -179,7 +180,7 @@ enum SpaceCommand {
 
     /// Serve space to other nodes (start blockchain shard).
     Serve {
-        /// Path to the blockchain folder.
+        /// Path to the blockchain database file.
         #[arg(short, long)]
         path: PathBuf,
 
@@ -245,14 +246,12 @@ impl SpaceCommand {
                     None => SecretKey::random(&mut rng)
                 };
 
-                if !path.exists() {
-                    std::fs::create_dir_all(&path)?;
-                } else {
+                if path.exists() {
                     anyhow::bail!("path is already occupied: {path:?}");
                 }
 
-                let storage = FileStorage::open(path)
-                    .context("failed to create file storage for the blockchain")?;
+                let storage = SqliteStorage::open(path)
+                    .context("failed to create sqlite storage for the blockchain")?;
 
                 // Extra randomness for the root block of the space blockchain.
                 let mut block = [0; 32];
@@ -331,12 +330,10 @@ impl SpaceCommand {
             } => {
                 let mut stdout = std::io::stdout();
 
-                if !path.exists() {
-                    anyhow::bail!("blockchain folder doesn't exist");
-                }
-
-                let storage = FileStorage::open(path)
+                let storage = SqliteStorage::open(path)
                     .context("failed to open blockchain storage")?;
+
+                // TODO: allow serving empty blockchain
 
                 let root_block = storage.root_block()
                     .context("failed to get root block from the storage")?;
